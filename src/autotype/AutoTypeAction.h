@@ -20,16 +20,20 @@
 #define KEEPASSX_AUTOTYPEACTION_H
 
 #include <QChar>
+#include <QSharedPointer>
 
 #include "core/Global.h"
 
+class AutoTypeTarget;
 class AutoTypeExecutor;
+class TargetedAutoTypeExecutor;
 
 class KEEPASSXC_EXPORT AutoTypeAction
 {
 public:
     AutoTypeAction() = default;
     virtual void exec(AutoTypeExecutor* executor) const = 0;
+    virtual void exec(TargetedAutoTypeExecutor* executor, QSharedPointer<AutoTypeTarget> target) = 0;
     virtual ~AutoTypeAction() = default;
 };
 
@@ -39,6 +43,7 @@ public:
     explicit AutoTypeKey(const QChar& character, Qt::KeyboardModifiers modifiers = Qt::NoModifier);
     explicit AutoTypeKey(Qt::Key key, Qt::KeyboardModifiers modifiers = Qt::NoModifier);
     void exec(AutoTypeExecutor* executor) const override;
+    void exec(TargetedAutoTypeExecutor* executor, QSharedPointer<AutoTypeTarget> target) override;
 
     const QChar character;
     const Qt::Key key = Qt::Key_unknown;
@@ -50,6 +55,7 @@ class KEEPASSXC_EXPORT AutoTypeDelay : public AutoTypeAction
 public:
     explicit AutoTypeDelay(int delayMs, bool setExecDelay = false);
     void exec(AutoTypeExecutor* executor) const override;
+    void exec(TargetedAutoTypeExecutor* executor, QSharedPointer<AutoTypeTarget> target) override;
 
     const int delayMs;
     const bool setExecDelay;
@@ -59,6 +65,7 @@ class KEEPASSXC_EXPORT AutoTypeClearField : public AutoTypeAction
 {
 public:
     void exec(AutoTypeExecutor* executor) const override;
+    void exec(TargetedAutoTypeExecutor* executor, QSharedPointer<AutoTypeTarget> target) override;
 };
 
 class KEEPASSXC_EXPORT AutoTypeExecutor
@@ -67,6 +74,16 @@ public:
     virtual ~AutoTypeExecutor() = default;
     virtual void execType(const AutoTypeKey* action) = 0;
     virtual void execClearField(const AutoTypeClearField* action) = 0;
+
+    int execDelayMs = 25;
+};
+
+class KEEPASSXC_EXPORT TargetedAutoTypeExecutor
+{
+public:
+    virtual ~TargetedAutoTypeExecutor() = default;
+    virtual void execType(AutoTypeKey* action, QSharedPointer<AutoTypeTarget> target) = 0;
+    virtual void execClearField(AutoTypeClearField* action, QSharedPointer<AutoTypeTarget> target) = 0;
 
     int execDelayMs = 25;
 };
