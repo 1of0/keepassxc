@@ -39,10 +39,13 @@ public:
     explicit AutoTypeSelectDialog(QWidget* parent = nullptr);
     ~AutoTypeSelectDialog() override;
 
-    void setMatches(const QList<AutoTypeMatch>& matchList, const QList<QSharedPointer<Database>>& dbs);
+    void setMatches(const QList<AutoTypeMatch>& matchList,
+                    const QList<QSharedPointer<Database>>& dbs,
+                    const AutoTypeMatch& lastMatch);
+    void setSearchString(const QString& search);
 
 signals:
-    void matchActivated(AutoTypeMatch match);
+    void matchActivated(AutoTypeMatch match, bool virtualMode = false);
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
@@ -52,21 +55,22 @@ protected:
 private slots:
     void submitAutoTypeMatch(AutoTypeMatch match);
     void performSearch();
-    void moveSelectionUp();
-    void moveSelectionDown();
     void activateCurrentMatch();
     void updateActionMenu(const AutoTypeMatch& match);
 
 private:
     void buildActionMenu();
+    void setDelayedSearch(bool state);
 
     QScopedPointer<Ui::AutoTypeSelectDialog> m_ui;
 
     QList<QSharedPointer<Database>> m_dbs;
     QList<AutoTypeMatch> m_matches;
+    AutoTypeMatch m_lastMatch;
     QTimer m_searchTimer;
     QPointer<QMenu> m_actionMenu;
 
+    bool m_virtualMode = false;
     bool m_accepted = false;
 };
 

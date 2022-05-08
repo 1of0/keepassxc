@@ -20,7 +20,6 @@
 
 #include <QtPlugin>
 
-#include "autotype/AutoTypeAction.h"
 #include "autotype/AutoTypePlatformPlugin.h"
 #include "autotype/test/AutoTypeTestInterface.h"
 
@@ -64,8 +63,9 @@ class AutoTypeExecutorTest : public AutoTypeExecutor
 public:
     explicit AutoTypeExecutorTest(AutoTypePlatformTest* platform);
 
-    void execType(const AutoTypeKey* action) override;
-    void execClearField(const AutoTypeClearField* action) override;
+    AutoTypeAction::Result execBegin(const AutoTypeBegin* action) override;
+    AutoTypeAction::Result execType(const AutoTypeKey* action) override;
+    AutoTypeAction::Result execClearField(const AutoTypeClearField* action) override;
 
 private:
     AutoTypePlatformTest* const m_platform;

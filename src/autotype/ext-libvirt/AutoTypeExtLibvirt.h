@@ -95,8 +95,10 @@ class AutoTypeExecutorLibvirt : public TargetedAutoTypeExecutor
 public:
     explicit AutoTypeExecutorLibvirt(AutoTypeExtLibvirt* plugin);
 
-    void execType(AutoTypeKey* action, QSharedPointer<AutoTypeTarget> target) override;
-    void execClearField(AutoTypeClearField* action, QSharedPointer<AutoTypeTarget> target) override;
+    AutoTypeAction::Result execBegin(const AutoTypeBegin* action, QSharedPointer<AutoTypeTarget> target) override;
+    AutoTypeAction::Result execType(const AutoTypeKey* action, QSharedPointer<AutoTypeTarget> target) override;
+    AutoTypeAction::Result execClearField(const AutoTypeClearField* action,
+                                          QSharedPointer<AutoTypeTarget> target) override;
 
 private:
     AutoTypeExtLibvirt* const m_plugin;

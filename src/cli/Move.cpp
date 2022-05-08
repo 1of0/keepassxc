@@ -15,16 +15,12 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <cstdlib>
-#include <stdio.h>
-
 #include "Move.h"
 
-#include "cli/TextStream.h"
-#include "cli/Utils.h"
-#include "core/Database.h"
-#include "core/Entry.h"
+#include "Utils.h"
 #include "core/Group.h"
+
+#include <QCommandLineParser>
 
 Move::Move()
 {
@@ -69,7 +65,7 @@ int Move::executeWithDatabase(QSharedPointer<Database> database, QSharedPointer<
     entry->endUpdate();
 
     QString errorMessage;
-    if (!database->save(&errorMessage, true, false)) {
+    if (!database->save(Database::Atomic, {}, &errorMessage)) {
         err << QObject::tr("Writing the database failed %1.").arg(errorMessage) << endl;
         return EXIT_FAILURE;
     }

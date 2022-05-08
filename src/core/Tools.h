@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 2012 Felix Geyer <debfx@fobos.de>
- *  Copyright (C) 2017 KeePassXC Team <team@keepassxc.org>
+ *  Copyright (C) 2021 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,12 +21,8 @@
 
 #include "core/Global.h"
 
-#include <QObject>
+#include <QDateTime>
 #include <QProcessEnvironment>
-#include <QString>
-#include <QUuid>
-
-#include <algorithm>
 
 class QIODevice;
 class QRegularExpression;
@@ -35,9 +31,9 @@ namespace Tools
 {
     QString debugInfo();
     QString humanReadableFileSize(qint64 bytes, quint32 precision = 2);
+    QString humanReadableTimeDifference(qint64 seconds);
     bool readFromDevice(QIODevice* device, QByteArray& data, int size = 16384);
     bool readAllFromDevice(QIODevice* device, QByteArray& data);
-    QString imageReaderFilter();
     bool isHex(const QByteArray& ba);
     bool isBase64(const QByteArray& ba);
     void sleep(int ms);
@@ -45,12 +41,23 @@ namespace Tools
     bool checkUrlValid(const QString& urlField);
     QString uuidToHex(const QUuid& uuid);
     QUuid hexToUuid(const QString& uuid);
-    QRegularExpression convertToRegex(const QString& string,
-                                      bool useWildcards = false,
-                                      bool exactMatch = false,
-                                      bool caseSensitive = false);
+    bool isValidUuid(const QString& uuidStr);
     QString envSubstitute(const QString& filepath,
                           QProcessEnvironment environment = QProcessEnvironment::systemEnvironment());
+
+    enum RegexConvertOpts
+    {
+        DEFAULT = 0,
+        WILDCARD_UNLIMITED_MATCH = 0x1,
+        WILDCARD_SINGLE_MATCH = 0x2,
+        WILDCARD_LOGICAL_OR = 0x4,
+        WILDCARD_ALL = WILDCARD_UNLIMITED_MATCH | WILDCARD_SINGLE_MATCH | WILDCARD_LOGICAL_OR,
+        EXACT_MATCH = 0x8,
+        CASE_SENSITIVE = 0x16,
+        ESCAPE_REGEX = 0x32,
+    };
+
+    QRegularExpression convertToRegex(const QString& string, int opts = RegexConvertOpts::DEFAULT);
 
     template <typename RandomAccessIterator, typename T>
     RandomAccessIterator binaryFind(RandomAccessIterator begin, RandomAccessIterator end, const T& value)
@@ -63,34 +70,6 @@ namespace Tools
             return it;
         }
     }
-
-    template <typename Key, typename Value, void deleter(Value)> struct Map
-    {
-        QMap<Key, Value> values;
-        Value& operator[](const Key index)
-        {
-            return values[index];
-        }
-
-        ~Map()
-        {
-            for (Value m : values) {
-                deleter(m);
-            }
-        }
-    };
-
-    struct Buffer
-    {
-        unsigned char* raw;
-        size_t size;
-
-        Buffer();
-        ~Buffer();
-
-        void clear();
-        QByteArray content() const;
-    };
 
     inline int qtRuntimeVersion()
     {
@@ -105,6 +84,10 @@ namespace Tools
 
         return version;
     }
+
+    QVariantMap qo2qvm(const QObject* object, const QStringList& ignoredProperties = {"objectName"});
+
+    QString substituteBackupFilePath(QString pattern, const QString& databasePath);
 } // namespace Tools
 
 #endif // KEEPASSX_TOOLS_H

@@ -18,6 +18,7 @@
 #include "Kdbx4Reader.h"
 
 #include <QBuffer>
+#include <QJsonObject>
 
 #include "core/AsyncTask.h"
 #include "core/Endian.h"
@@ -26,15 +27,16 @@
 #include "format/KdbxXmlReader.h"
 #include "format/KeePass2RandomStream.h"
 #include "streams/HmacBlockStream.h"
-#include "streams/QtIOCompressor"
+#include "streams/StoreDataStream.h"
 #include "streams/SymmetricCipherStream.h"
+#include "streams/qtiocompressor.h"
 
 bool Kdbx4Reader::readDatabaseImpl(QIODevice* device,
                                    const QByteArray& headerData,
                                    QSharedPointer<const CompositeKey> key,
                                    Database* db)
 {
-    Q_ASSERT(m_kdbxVersion == KeePass2::FILE_VERSION_4);
+    Q_ASSERT((db->formatVersion() & KeePass2::FILE_VERSION_CRITICAL_MASK) == KeePass2::FILE_VERSION_4);
 
     m_binaryPool.clear();
 
@@ -83,13 +85,13 @@ bool Kdbx4Reader::readDatabaseImpl(QIODevice* device,
         return false;
     }
 
-    SymmetricCipher::Algorithm cipher = SymmetricCipher::cipherToAlgorithm(db->cipher());
-    if (cipher == SymmetricCipher::InvalidAlgorithm) {
+    auto mode = SymmetricCipher::cipherUuidToMode(db->cipher());
+    if (mode == SymmetricCipher::InvalidMode) {
         raiseError(tr("Unknown cipher"));
         return false;
     }
-    SymmetricCipherStream cipherStream(&hmacStream, cipher, SymmetricCipher::algorithmMode(cipher), SymmetricCipher::Decrypt);
-    if (!cipherStream.init(finalKey, m_encryptionIV)) {
+    SymmetricCipherStream cipherStream(&hmacStream);
+    if (!cipherStream.init(mode, SymmetricCipher::Decrypt, finalKey, m_encryptionIV)) {
         raiseError(cipherStream.errorString());
         return false;
     }
@@ -121,8 +123,20 @@ bool Kdbx4Reader::readDatabaseImpl(QIODevice* device,
         return false;
     }
 
-    KeePass2RandomStream randomStream(m_irsAlgo);
-    if (!randomStream.init(m_protectedStreamKey)) {
+    // TODO: Convert m_irsAlgo to Mode
+    switch (m_irsAlgo) {
+    case KeePass2::ProtectedStreamAlgo::Salsa20:
+        mode = SymmetricCipher::Salsa20;
+        break;
+    case KeePass2::ProtectedStreamAlgo::ChaCha20:
+        mode = SymmetricCipher::ChaCha20;
+        break;
+    default:
+        mode = SymmetricCipher::InvalidMode;
+    }
+
+    KeePass2RandomStream randomStream;
+    if (!randomStream.init(mode, m_protectedStreamKey)) {
         raiseError(randomStream.errorString());
         return false;
     }
@@ -152,7 +166,7 @@ bool Kdbx4Reader::readHeaderField(StoreDataStream& device, Database* db)
     bool ok;
     auto fieldLen = Endian::readSizedInt<quint32>(&device, KeePass2::BYTEORDER, &ok);
     if (!ok) {
-        raiseError(tr("Invalid header field length"));
+        raiseError(tr("Invalid header field length: field %1").arg(fieldID));
         return false;
     }
 
@@ -160,7 +174,10 @@ bool Kdbx4Reader::readHeaderField(StoreDataStream& device, Database* db)
     if (fieldLen != 0) {
         fieldData = device.read(fieldLen);
         if (static_cast<quint32>(fieldData.size()) != fieldLen) {
-            raiseError(tr("Invalid header data length"));
+            raiseError(tr("Invalid header data length: field %1, %2 expected, %3 found")
+                           .arg(static_cast<int>(fieldID))
+                           .arg(fieldLen)
+                           .arg(fieldData.size()));
             return false;
         }
     }
@@ -244,7 +261,7 @@ bool Kdbx4Reader::readInnerHeaderField(QIODevice* device)
     bool ok;
     auto fieldLen = Endian::readSizedInt<quint32>(device, KeePass2::BYTEORDER, &ok);
     if (!ok) {
-        raiseError(tr("Invalid inner header field length"));
+        raiseError(tr("Invalid inner header field length: field %1").arg(static_cast<int>(fieldID)));
         return false;
     }
 
@@ -252,7 +269,10 @@ bool Kdbx4Reader::readInnerHeaderField(QIODevice* device)
     if (fieldLen != 0) {
         fieldData = device->read(fieldLen);
         if (static_cast<quint32>(fieldData.size()) != fieldLen) {
-            raiseError(tr("Invalid header data length"));
+            raiseError(tr("Invalid inner header data length: field %1, %2 expected, %3 found")
+                           .arg(static_cast<int>(fieldID))
+                           .arg(fieldLen)
+                           .arg(fieldData.size()));
             return false;
         }
     }

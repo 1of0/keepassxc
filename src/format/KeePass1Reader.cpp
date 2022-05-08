@@ -18,20 +18,15 @@
 #include "KeePass1Reader.h"
 
 #include <QFile>
-#include <QImage>
 #include <QTextCodec>
 
-#include "core/Database.h"
 #include "core/Endian.h"
-#include "core/Entry.h"
 #include "core/Group.h"
 #include "core/Metadata.h"
 #include "core/Tools.h"
 #include "crypto/CryptoHash.h"
-#include "crypto/kdf/AesKdf.h"
 #include "format/KeePass1.h"
 #include "keys/FileKey.h"
-#include "keys/PasswordKey.h"
 #include "streams/SymmetricCipherStream.h"
 
 class KeePass1Key : public CompositeKey
@@ -332,15 +327,14 @@ KeePass1Reader::testKeys(const QString& password, const QByteArray& keyfileData,
         if (finalKey.isEmpty()) {
             return nullptr;
         }
-        if (m_encryptionFlags & KeePass1::Rijndael) {
-            cipherStream.reset(new SymmetricCipherStream(
-                m_device, SymmetricCipher::Aes256, SymmetricCipher::Cbc, SymmetricCipher::Decrypt));
-        } else {
-            cipherStream.reset(new SymmetricCipherStream(
-                m_device, SymmetricCipher::Twofish, SymmetricCipher::Cbc, SymmetricCipher::Decrypt));
-        }
 
-        if (!cipherStream->init(finalKey, m_encryptionIV)) {
+        cipherStream.reset(new SymmetricCipherStream(m_device));
+
+        auto mode = SymmetricCipher::Aes256_CBC;
+        if (m_encryptionFlags & KeePass1::Twofish) {
+            mode = SymmetricCipher::Twofish_CBC;
+        }
+        if (!cipherStream->init(mode, SymmetricCipher::Decrypt, finalKey, m_encryptionIV)) {
             raiseError(cipherStream->errorString());
             return nullptr;
         }
@@ -362,9 +356,13 @@ KeePass1Reader::testKeys(const QString& password, const QByteArray& keyfileData,
 
             return nullptr;
         }
-        cipherStream->open(QIODevice::ReadOnly);
 
         if (success) {
+            if (!cipherStream->init(mode, SymmetricCipher::Decrypt, finalKey, m_encryptionIV)) {
+                raiseError(cipherStream->errorString());
+                return nullptr;
+            }
+            cipherStream->open(QIODevice::ReadOnly);
             break;
         } else {
             cipherStream.reset();
@@ -859,12 +857,8 @@ bool KeePass1Reader::parseCustomIcons4(const QByteArray& data)
         if (static_cast<quint32>(data.size()) < (pos + iconSize)) {
             return false;
         }
-        QImage icon = QImage::fromData(data.mid(pos, iconSize));
+        QByteArray icon = data.mid(pos, iconSize);
         pos += iconSize;
-
-        if (icon.width() != 16 || icon.height() != 16) {
-            icon = icon.scaled(16, 16);
-        }
 
         QUuid uuid = QUuid::createUuid();
         iconUuids.append(uuid);

@@ -22,13 +22,19 @@
 #include "gui/databasekey/KeyFileEditWidget.h"
 #include "gui/databasekey/PasswordEditWidget.h"
 #include "gui/databasekey/YubiKeyEditWidget.h"
+#include "keys/ChallengeResponseKey.h"
 #include "keys/FileKey.h"
 #include "keys/PasswordKey.h"
-#include "keys/YkChallengeResponseKey.h"
 
+#ifdef Q_OS_MACOS
+#include "touchid/TouchID.h"
+#endif
+#ifdef Q_CC_MSVC
+#include "winhello/WindowsHello.h"
+#endif
+
+#include <QLayout>
 #include <QPushButton>
-#include <QSpacerItem>
-#include <QVBoxLayout>
 
 DatabaseSettingsWidgetDatabaseKey::DatabaseSettingsWidgetDatabaseKey(QWidget* parent)
     : DatabaseSettingsWidget(parent)
@@ -91,7 +97,7 @@ void DatabaseSettingsWidgetDatabaseKey::load(QSharedPointer<Database> db)
 
 #ifdef WITH_XC_YUBIKEY
     for (const auto& key : m_db->key()->challengeResponseKeys()) {
-        if (key->uuid() == YkChallengeResponseKey::UUID) {
+        if (key->uuid() == ChallengeResponseKey::UUID) {
             m_yubiKeyEditWidget->setComponentAdded(true);
             hasAdditionalKeys = true;
         }
@@ -150,7 +156,7 @@ bool DatabaseSettingsWidgetDatabaseKey::save()
     }
 
     for (const auto& key : m_db->key()->challengeResponseKeys()) {
-        if (key->uuid() == YkChallengeResponseKey::UUID) {
+        if (key->uuid() == ChallengeResponseKey::UUID) {
             oldChallengeResponse = key;
         }
     }
@@ -193,6 +199,12 @@ bool DatabaseSettingsWidgetDatabaseKey::save()
     }
 
     m_db->setKey(newKey, true, false, false);
+
+#if defined(Q_OS_MACOS)
+    TouchID::getInstance().reset(m_db->filePath());
+#elif defined(Q_CC_MSVC)
+    getWindowsHello()->reset(m_db->filePath());
+#endif
 
     emit editFinished(true);
     if (m_isDirty) {

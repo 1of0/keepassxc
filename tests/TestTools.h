@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2017 KeePassXC Team <team@keepassxc.org>
+ *  Copyright (C) 2021 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -28,6 +28,11 @@ private slots:
     void testIsHex();
     void testIsBase64();
     void testEnvSubstitute();
+    void testValidUuid();
+    void testBackupFilePatternSubstitution_data();
+    void testBackupFilePatternSubstitution();
+    void testConvertToRegex();
+    void testConvertToRegex_data();
 };
 
 #endif // KEEPASSX_TESTTOOLS_H

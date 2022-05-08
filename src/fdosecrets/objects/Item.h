@@ -21,8 +21,6 @@
 #include "fdosecrets/dbus/DBusClient.h"
 #include "fdosecrets/dbus/DBusObject.h"
 
-#include <QPointer>
-
 class Entry;
 
 namespace FdoSecrets
@@ -32,6 +30,7 @@ namespace FdoSecrets
     {
         constexpr const auto UuidKey = "Uuid";
         constexpr const auto PathKey = "Path";
+        constexpr const auto TotpKey = "TOTP";
     } // namespace ItemAttributes
 
     class Session;
@@ -93,8 +92,13 @@ namespace FdoSecrets
         QString path() const;
 
     public slots:
-        void doDelete();
+        // will actually delete the entry in KPXC
+        bool doDelete();
 
+        // Only delete from dbus, will remove self. Do not affect database in KPXC
+        void removeFromDBus();
+
+    private slots:
         /**
          * Check if the backend is a valid object, send error reply if not.
          * @return No error if the backend is valid.

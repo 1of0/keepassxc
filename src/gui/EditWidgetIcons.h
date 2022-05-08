@@ -20,13 +20,9 @@
 #define KEEPASSX_EDITWIDGETICONS_H
 
 #include <QMenu>
-#include <QUrl>
 #include <QUuid>
-#include <QWidget>
 
 #include "config-keepassx.h"
-#include "core/Entry.h"
-#include "core/Global.h"
 #include "gui/MessageWidget.h"
 
 class Database;
@@ -76,6 +72,9 @@ public:
               const QString& url = "");
     void setShowApplyIconToButton(bool state);
 
+protected:
+    void keyPressEvent(QKeyEvent* event) override;
+
 public slots:
     void setUrl(const QString& url);
     void abortRequests();
@@ -89,7 +88,7 @@ private slots:
     void downloadFavicon();
     void iconReceived(const QString& url, const QImage& icon);
     void addCustomIconFromFile();
-    bool addCustomIcon(const QImage& icon);
+    bool addCustomIcon(const QImage& icon, const QString& name = {});
     void updateWidgetsDefaultIcons(bool checked);
     void updateWidgetsCustomIcons(bool checked);
     void updateRadioButtonDefaultIcons();
@@ -106,8 +105,7 @@ private:
     DefaultIconModel* const m_defaultIconModel;
     CustomIconModel* const m_customIconModel;
 #ifdef WITH_XC_NETWORKING
-    QScopedPointer<IconDownloader> m_downloader;
-    QString m_url;
+    QSharedPointer<IconDownloader> m_downloader;
 #endif
 
     Q_DISABLE_COPY(EditWidgetIcons)

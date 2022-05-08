@@ -20,17 +20,11 @@
 
 #include "fdosecrets/dbus/DBusClient.h"
 
-#include <QByteArray>
 #include <QDBusConnection>
-#include <QDBusObjectPath>
 #include <QDBusServiceWatcher>
 #include <QDBusVirtualObject>
 #include <QDebug>
-#include <QHash>
-#include <QPointer>
-#include <QVector>
-
-#include <utility>
+#include <QtDBus>
 
 class TestFdoSecrets;
 
@@ -225,12 +219,7 @@ namespace FdoSecrets
     private:
         QDBusConnection m_conn;
 
-        struct ProcessInfo
-        {
-            uint pid;
-            QString exePath;
-        };
-        bool serviceInfo(const QString& addr, ProcessInfo& info) const;
+        bool serviceInfo(const QString& addr, PeerInfo& info) const;
 
         bool sendDBusSignal(const QString& path,
                             const QString& interface,

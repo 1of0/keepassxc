@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 2010 Felix Geyer <debfx@fobos.de>
- *  Copyright (C) 2017 KeePassXC Team <team@keepassxc.org>
+ *  Copyright (C) 2021 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,11 +20,9 @@
 #define KEEPASSX_EDITENTRYWIDGET_H
 
 #include <QButtonGroup>
+#include <QCheckBox>
 #include <QCompleter>
-#include <QModelIndex>
 #include <QPointer>
-#include <QScopedPointer>
-#include <QScrollArea>
 #include <QTimer>
 
 #include "config-keepassx.h"
@@ -38,10 +36,12 @@ class EditWidgetIcons;
 class EditWidgetProperties;
 class Entry;
 class EntryAttributes;
+class EntryAttachments;
 class EntryAttributesModel;
 class EntryHistoryModel;
 class QButtonGroup;
 class QMenu;
+class QScrollArea;
 class QSortFilterProxyModel;
 class QStringListModel;
 #ifdef WITH_XC_SSHAGENT
@@ -153,6 +153,7 @@ private:
     void setForms(Entry* entry, bool restore = false);
     QMenu* createPresetsMenu();
     void updateEntryData(Entry* entry) const;
+    void updateBrowserIntegrationCheckbox(QCheckBox* checkBox, bool enabled, bool value, const QString& option);
 #ifdef WITH_XC_SSHAGENT
     bool getOpenSSHKey(OpenSSHKey& key, bool decrypt = false);
 #endif
@@ -173,6 +174,7 @@ private:
     const QScopedPointer<Ui::EditEntryWidgetSSHAgent> m_sshAgentUi;
     const QScopedPointer<Ui::EditEntryWidgetHistory> m_historyUi;
     const QScopedPointer<Ui::EditEntryWidgetBrowser> m_browserUi;
+    const QScopedPointer<EntryAttachments> m_attachments;
     const QScopedPointer<CustomData> m_customData;
 
     QScrollArea* const m_mainWidget;

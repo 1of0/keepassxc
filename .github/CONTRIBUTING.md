@@ -63,7 +63,7 @@ Before submitting a bug report, check if the problem has already been reported. 
 
 ### Discuss with the team
 
-As with feature requests, you can talk to the KeePassXC team about bugs, new features, other issues and pull requests on the dedicated issue tracker, or in the IRC channel on Freenode (`#keepassxc-dev` on `irc.freenode.net`, or use a [webchat link](https://webchat.freenode.net/?channels=%23keepassxc-dev)).
+As with feature requests, you can talk to the KeePassXC team about bugs, new features, other issues and pull requests on the dedicated issue tracker, on the [Matrix development channel](https://matrix.to/#/!RhJPJPGwQIFVQeXqZa:matrix.org?via=matrix.org), or in the IRC channel on Libera.Chat (`#keepassxc-dev` on `irc.libera.chat`, or use a [webchat link](https://web.libera.chat/#keepassxc-dev)).
 
 ### Your first code contribution
 
@@ -91,10 +91,11 @@ Please join an existing language team or request a new one if there is none.
 
 The Branch Strategy is based on [git-flow-lite](http://nvie.com/posts/a-successful-git-branching-model/).
 
-* **master** – points to the latest public release
 * **develop** – points to the development of the next release, contains tested and reviewed code
 * **feature/**[name] – points to a branch with a new feature, one which is candidate for merge into develop (subject to rebase)
-* **hotfix/**[name] – points to a branch with a fix for a particular issue ID
+* **fix/**[name] – points to a branch with a fix for a particular issue ID
+
+Note: The **latest** tag is used to point to the most recent stable release.
 
 
 ### Git commit messages

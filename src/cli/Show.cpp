@@ -17,17 +17,11 @@
 
 #include "Show.h"
 
-#include <cstdlib>
-#include <stdio.h>
-
 #include "Utils.h"
-#include "cli/TextStream.h"
-#include "core/Database.h"
-#include "core/Entry.h"
-#include "core/Global.h"
 #include "core/Group.h"
+#include "core/Tools.h"
 
-#include <QLocale>
+#include <QCommandLineParser>
 
 const QCommandLineOption Show::TotpOption = QCommandLineOption(QStringList() << "t"
                                                                              << "totp",
@@ -37,6 +31,9 @@ const QCommandLineOption Show::ProtectedAttributesOption =
     QCommandLineOption(QStringList() << "s"
                                      << "show-protected",
                        QObject::tr("Show the protected attributes in clear text."));
+
+const QCommandLineOption Show::AttachmentsOption =
+    QCommandLineOption(QStringList() << "show-attachments", QObject::tr("Show the attachments of the entry."));
 
 const QCommandLineOption Show::AttributesOption = QCommandLineOption(
     QStringList() << "a"
@@ -54,6 +51,7 @@ Show::Show()
     options.append(Show::TotpOption);
     options.append(Show::AttributesOption);
     options.append(Show::ProtectedAttributesOption);
+    options.append(Show::AttachmentsOption);
     positionalArguments.append({QString("entry"), QObject::tr("Name of the entry to show."), QString("")});
 }
 
@@ -108,6 +106,25 @@ int Show::executeWithDatabase(QSharedPointer<Database> database, QSharedPointer<
             out << "PROTECTED" << endl;
         } else {
             out << entry->resolveMultiplePlaceholders(entry->attributes()->value(canonicalName)) << endl;
+        }
+    }
+
+    if (parser->isSet(Show::AttachmentsOption)) {
+        // Separate attachment output from attributes output via a newline.
+        out << endl;
+
+        EntryAttachments* attachments = entry->attachments();
+        if (attachments->isEmpty()) {
+            out << QObject::tr("No attachments present.") << endl;
+        } else {
+            out << QObject::tr("Attachments:") << endl;
+
+            // Iterate over the attachments and output their names and size line-by-line, indented.
+            for (const QString& attachmentName : attachments->keys()) {
+                // TODO: use QLocale::formattedDataSize when >= Qt 5.10
+                QString attachmentSize = Tools::humanReadableFileSize(attachments->value(attachmentName).size(), 1);
+                out << "  " << attachmentName << " (" << attachmentSize << ")" << endl;
+            }
         }
     }
 

@@ -17,8 +17,11 @@
 
 #include "Utils.h"
 
+#include "core/Database.h"
+#include "core/EntryAttributes.h"
+#include "keys/FileKey.h"
 #ifdef WITH_XC_YUBIKEY
-#include "keys/YkChallengeResponseKeyCLI.h"
+#include "keys/ChallengeResponseKey.h"
 #endif
 
 #ifdef Q_OS_WIN
@@ -30,7 +33,6 @@
 
 #include <QFileInfo>
 #include <QProcess>
-#include <QScopedPointer>
 
 namespace Utils
 {
@@ -91,7 +93,7 @@ namespace Utils
     }
 
     QSharedPointer<Database> unlockDatabase(const QString& databaseFilename,
-                                            const bool isPasswordProtected,
+                                            bool isPasswordProtected,
                                             const QString& keyFilename,
                                             const QString& yubiKeySlot,
                                             bool quiet)
@@ -165,9 +167,14 @@ namespace Utils
                 }
             }
 
-            auto key = QSharedPointer<YkChallengeResponseKeyCLI>(new YkChallengeResponseKeyCLI(
-                {serial, slot}, QObject::tr("Please touch the button on your YubiKey to continue…"), err));
+            QObject::connect(YubiKey::instance(), &YubiKey::userInteractionRequest, [&] {
+                err << QObject::tr("Please present or touch your YubiKey to continue.") << "\n\n" << flush;
+            });
+
+            auto key = QSharedPointer<ChallengeResponseKey>(new ChallengeResponseKey({serial, slot}));
             compositeKey->addChallengeResponseKey(key);
+
+            YubiKey::instance()->findValidKeys();
         }
 #else
         Q_UNUSED(yubiKeySlot);
@@ -175,7 +182,7 @@ namespace Utils
 
         auto db = QSharedPointer<Database>::create();
         QString error;
-        if (db->open(databaseFilename, compositeKey, &error, false)) {
+        if (db->open(databaseFilename, compositeKey, &error)) {
             return db;
         } else {
             err << error << endl;
@@ -262,7 +269,7 @@ namespace Utils
 
 #ifdef Q_OS_UNIX
         if (QProcessEnvironment::systemEnvironment().contains("WAYLAND_DISPLAY")) {
-            clipPrograms << qMakePair(QStringLiteral("wl-copy"), QStringLiteral(""));
+            clipPrograms << qMakePair(QStringLiteral("wl-copy"), QStringLiteral("-t text/plain"));
         } else {
             clipPrograms << qMakePair(QStringLiteral("xclip"), QStringLiteral("-selection clipboard -i"));
         }
@@ -284,7 +291,7 @@ namespace Utils
 
         QStringList failedProgramNames;
 
-        for (auto prog : clipPrograms) {
+        for (const auto& prog : clipPrograms) {
             QScopedPointer<QProcess> clipProcess(new QProcess(nullptr));
 
             // Skip empty parts, otherwise the program may clip the empty string
@@ -298,8 +305,15 @@ namespace Utils
                 continue;
             }
 
-            if (clipProcess->write(text.toLatin1()) == -1) {
-                qDebug("Unable to write to process : %s", qPrintable(clipProcess->errorString()));
+#ifdef Q_OS_WIN
+            // Windows clip command only understands Unicode written as UTF-16
+            auto data = QByteArray::fromRawData(reinterpret_cast<const char*>(text.utf16()), text.size() * 2);
+            if (clipProcess->write(data) == -1) {
+#else
+            // Other platforms understand UTF-8
+            if (clipProcess->write(text.toUtf8()) == -1) {
+#endif
+                qWarning("Unable to write to process : %s", qPrintable(clipProcess->errorString()));
             }
             clipProcess->waitForBytesWritten();
             clipProcess->closeWriteChannel();

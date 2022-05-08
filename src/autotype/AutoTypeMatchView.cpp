@@ -17,12 +17,9 @@
  */
 
 #include "AutoTypeMatchView.h"
-
+#include "AutoTypeMatchModel.h"
 #include "core/Entry.h"
-#include "gui/Clipboard.h"
-#include "gui/Icons.h"
 
-#include <QAction>
 #include <QHeaderView>
 #include <QKeyEvent>
 #include <QSortFilterProxyModel>
@@ -73,9 +70,13 @@ void AutoTypeMatchView::keyPressEvent(QKeyEvent* event)
 {
     if ((event->key() == Qt::Key_Enter || event->key() == Qt::Key_Return) && currentIndex().isValid()) {
         emit matchActivated(matchFromIndex(currentIndex()));
+    } else if (event->key() == Qt::Key_PageUp) {
+        moveSelection(-5);
+    } else if (event->key() == Qt::Key_PageDown) {
+        moveSelection(5);
+    } else {
+        QTableView::keyPressEvent(event);
     }
-
-    QTableView::keyPressEvent(event);
 }
 
 void AutoTypeMatchView::setMatchList(const QList<AutoTypeMatch>& matches)
@@ -84,15 +85,43 @@ void AutoTypeMatchView::setMatchList(const QList<AutoTypeMatch>& matches)
     m_sortModel->setFilterWildcard({});
 
     horizontalHeader()->resizeSections(QHeaderView::ResizeToContents);
+
+    selectionModel()->clear();
+    emit currentMatchChanged(currentMatch());
+}
+
+void AutoTypeMatchView::selectFirstMatch()
+{
     selectionModel()->setCurrentIndex(m_sortModel->index(0, 0),
                                       QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
     emit currentMatchChanged(currentMatch());
+}
+
+bool AutoTypeMatchView::selectMatch(const AutoTypeMatch& match)
+{
+    QModelIndex index = m_model->closestIndexFromMatch(match);
+
+    if (index.isValid()) {
+        selectionModel()->setCurrentIndex(m_sortModel->mapFromSource(index),
+                                          QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+        emit currentMatchChanged(currentMatch());
+        return true;
+    }
+
+    return false;
 }
 
 void AutoTypeMatchView::filterList(const QString& filter)
 {
     m_sortModel->setFilterWildcard(filter);
     setCurrentIndex(m_sortModel->index(0, 0));
+}
+
+void AutoTypeMatchView::moveSelection(int offset)
+{
+    auto index = currentIndex();
+    auto row = index.isValid() ? index.row() : -1;
+    selectRow(qBound(0, row + offset, model()->rowCount() - 1));
 }
 
 AutoTypeMatch AutoTypeMatchView::currentMatch()

@@ -1,5 +1,6 @@
 /*
  *  Copyright (C) 2010 Felix Geyer <debfx@fobos.de>
+ *  Copyright (C) 2021 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -16,25 +17,27 @@
  */
 
 #include "Metadata.h"
-#include <QApplication>
-#include <QtCore/QCryptographicHash>
 
 #include "core/Clock.h"
-#include "core/DatabaseIcons.h"
 #include "core/Entry.h"
 #include "core/Group.h"
-#include "core/Tools.h"
+
+#include <QApplication>
+#include <QCryptographicHash>
 
 const int Metadata::DefaultHistoryMaxItems = 10;
 const int Metadata::DefaultHistoryMaxSize = 6 * 1024 * 1024;
 
+// Fallback icon for return by reference
+static const Metadata::CustomIconData NULL_ICON{};
+
 Metadata::Metadata(QObject* parent)
-    : QObject(parent)
+    : ModifiableObject(parent)
     , m_customData(new CustomData(this))
     , m_updateDatetime(true)
 {
     init();
-    connect(m_customData, SIGNAL(customDataModified()), SIGNAL(metadataModified()));
+    connect(m_customData, &CustomData::modified, this, &Metadata::modified);
 }
 
 void Metadata::init()
@@ -66,7 +69,6 @@ void Metadata::clear()
 {
     init();
     m_customIcons.clear();
-    m_customIconsRaw.clear();
     m_customIconsOrder.clear();
     m_customIconsHashes.clear();
     m_customData->clear();
@@ -76,7 +78,7 @@ template <class P, class V> bool Metadata::set(P& property, const V& value)
 {
     if (property != value) {
         property = value;
-        emit metadataModified();
+        emitModified();
         return true;
     } else {
         return false;
@@ -90,7 +92,7 @@ template <class P, class V> bool Metadata::set(P& property, const V& value, QDat
         if (m_updateDatetime) {
             dateTime = Clock::currentDateTimeUtc();
         }
-        emit metadataModified();
+        emitModified();
         return true;
     } else {
         return false;
@@ -177,33 +179,19 @@ bool Metadata::protectNotes() const
     return m_data.protectNotes;
 }
 
-QImage Metadata::customIcon(const QUuid& uuid) const
+const Metadata::CustomIconData& Metadata::customIcon(const QUuid& uuid) const
 {
-    return m_customIconsRaw.value(uuid);
-}
-
-QPixmap Metadata::customIconPixmap(const QUuid& uuid, IconSize size) const
-{
-    if (!hasCustomIcon(uuid)) {
-        return {};
+    auto icon = m_customIcons.find(uuid);
+    Q_ASSERT(icon != m_customIcons.end());
+    if (icon == m_customIcons.end()) {
+        return NULL_ICON;
     }
-    return m_customIcons.value(uuid).pixmap(databaseIcons()->iconSize(size));
-}
-
-QHash<QUuid, QPixmap> Metadata::customIconsPixmaps(IconSize size) const
-{
-    QHash<QUuid, QPixmap> result;
-
-    for (const QUuid& uuid : m_customIconsOrder) {
-        result.insert(uuid, customIconPixmap(uuid, size));
-    }
-
-    return result;
+    return icon.value();
 }
 
 bool Metadata::hasCustomIcon(const QUuid& uuid) const
 {
-    return m_customIconsRaw.contains(uuid);
+    return m_customIcons.contains(uuid);
 }
 
 QList<QUuid> Metadata::customIconsOrder() const
@@ -359,57 +347,54 @@ void Metadata::setProtectNotes(bool value)
     set(m_data.protectNotes, value);
 }
 
-void Metadata::addCustomIcon(const QUuid& uuid, const QImage& image)
+void Metadata::addCustomIcon(const QUuid& uuid, const CustomIconData& iconData)
 {
-    Q_ASSERT(!uuid.isNull());
-    Q_ASSERT(!m_customIconsRaw.contains(uuid));
 
-    m_customIconsRaw[uuid] = image;
+    Q_ASSERT(!uuid.isNull());
+    Q_ASSERT(!m_customIcons.contains(uuid));
+
     // remove all uuids to prevent duplicates in release mode
+    m_customIcons[uuid] = iconData;
     m_customIconsOrder.removeAll(uuid);
     m_customIconsOrder.append(uuid);
+
     // Associate image hash to uuid
-    QByteArray hash = hashImage(image);
+    QByteArray hash = hashIcon(iconData.data);
     m_customIconsHashes[hash] = uuid;
-    Q_ASSERT(m_customIconsRaw.count() == m_customIconsOrder.count());
+    Q_ASSERT(m_customIcons.count() == m_customIconsOrder.count());
 
-    // TODO: This check can go away when we move all QIcon handling outside of core
-    // On older versions of Qt, loading a QPixmap from QImage outside of a GUI
-    // environment causes ASAN to fail and crash on nullptr violation
-    static bool isGui = qApp->inherits("QGuiApplication");
-    if (isGui) {
-        // Generate QIcon with pre-baked resolutions
-        auto basePixmap = QPixmap::fromImage(image.scaled(64, 64, Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
-        QIcon icon(basePixmap);
-        m_customIcons.insert(uuid, icon);
-    } else {
-        m_customIcons.insert(uuid, QIcon());
-    }
+    emitModified();
+}
 
-    emit metadataModified();
+void Metadata::addCustomIcon(const QUuid& uuid,
+                             const QByteArray& iconBytes,
+                             const QString& name,
+                             const QDateTime& lastModified)
+{
+    addCustomIcon(uuid, {iconBytes, name, lastModified});
 }
 
 void Metadata::removeCustomIcon(const QUuid& uuid)
 {
     Q_ASSERT(!uuid.isNull());
-    Q_ASSERT(m_customIconsRaw.contains(uuid));
+    Q_ASSERT(m_customIcons.contains(uuid));
 
     // Remove hash record only if this is the same uuid
-    QByteArray hash = hashImage(m_customIconsRaw[uuid]);
+    QByteArray hash = hashIcon(m_customIcons[uuid].data);
     if (m_customIconsHashes.contains(hash) && m_customIconsHashes[hash] == uuid) {
         m_customIconsHashes.remove(hash);
     }
 
     m_customIcons.remove(uuid);
-    m_customIconsRaw.remove(uuid);
     m_customIconsOrder.removeAll(uuid);
-    Q_ASSERT(m_customIconsRaw.count() == m_customIconsOrder.count());
-    emit metadataModified();
+    Q_ASSERT(m_customIcons.count() == m_customIconsOrder.count());
+    dynamic_cast<Database*>(parent())->addDeletedObject(uuid);
+    emitModified();
 }
 
-QUuid Metadata::findCustomIcon(const QImage& candidate)
+QUuid Metadata::findCustomIcon(const QByteArray& candidate)
 {
-    QByteArray hash = hashImage(candidate);
+    QByteArray hash = hashIcon(candidate);
     return m_customIconsHashes.value(hash, QUuid());
 }
 
@@ -424,14 +409,9 @@ void Metadata::copyCustomIcons(const QSet<QUuid>& iconList, const Metadata* othe
     }
 }
 
-QByteArray Metadata::hashImage(const QImage& image)
+QByteArray Metadata::hashIcon(const QByteArray& iconData)
 {
-#if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
-    auto data = QByteArray(reinterpret_cast<const char*>(image.bits()), static_cast<int>(image.sizeInBytes()));
-#else
-    auto data = QByteArray(reinterpret_cast<const char*>(image.bits()), image.byteCount());
-#endif
-    return QCryptographicHash::hash(data, QCryptographicHash::Md5);
+    return QCryptographicHash::hash(iconData, QCryptographicHash::Md5);
 }
 
 void Metadata::setRecycleBinEnabled(bool value)

@@ -16,12 +16,17 @@
  */
 
 #include "DarkStyle.h"
-#include "gui/osutils/OSUtils.h"
 
 #include <QDialog>
+#include <QFile>
 #include <QMainWindow>
 #include <QMenuBar>
+#include <QStatusBar>
 #include <QToolBar>
+
+#ifdef Q_OS_MACOS
+#include "gui/osutils/OSUtils.h"
+#endif
 
 DarkStyle::DarkStyle()
     : BaseStyle()
@@ -110,7 +115,7 @@ QString DarkStyle::getAppStyleSheet() const
 void DarkStyle::polish(QWidget* widget)
 {
     if (qobject_cast<QMainWindow*>(widget) || qobject_cast<QDialog*>(widget) || qobject_cast<QMenuBar*>(widget)
-        || qobject_cast<QToolBar*>(widget)) {
+        || qobject_cast<QToolBar*>(widget) || qobject_cast<QStatusBar*>(widget)) {
         auto palette = widget->palette();
 #if defined(Q_OS_MACOS)
         if (!osUtils->isDarkMode()) {

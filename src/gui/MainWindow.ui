@@ -16,7 +16,7 @@
   <property name="minimumSize">
    <size>
     <width>800</width>
-    <height>400</height>
+    <height>500</height>
    </size>
   </property>
   <property name="windowTitle">
@@ -216,7 +216,7 @@
      <x>0</x>
      <y>0</y>
      <width>800</width>
-     <height>22</height>
+     <height>21</height>
     </rect>
    </property>
    <property name="contextMenuPolicy">
@@ -254,6 +254,9 @@
     <addaction name="actionDatabaseSaveBackup"/>
     <addaction name="actionDatabaseClose"/>
     <addaction name="separator"/>
+    <addaction name="actionLockDatabase"/>
+    <addaction name="actionLockAllDatabases"/>
+    <addaction name="separator"/>
     <addaction name="actionReports"/>
     <addaction name="actionDatabaseSettings"/>
     <addaction name="actionDatabaseSecurity"/>
@@ -282,6 +285,9 @@
    <widget class="QMenu" name="menuEntries">
     <property name="title">
      <string>&amp;Entries</string>
+    </property>
+    <property name="separatorsCollapsible">
+     <bool>true</bool>
     </property>
     <widget class="QMenu" name="menuEntryCopyAttribute">
      <property name="enabled">
@@ -331,6 +337,8 @@
     <addaction name="separator"/>
     <addaction name="actionEntryAddToAgent"/>
     <addaction name="actionEntryRemoveFromAgent"/>
+    <addaction name="separator"/>
+    <addaction name="actionEntryRestore"/>
    </widget>
    <widget class="QMenu" name="menuGroups">
     <property name="title">
@@ -338,6 +346,7 @@
     </property>
     <addaction name="actionGroupNew"/>
     <addaction name="actionGroupEdit"/>
+    <addaction name="actionGroupClone"/>
     <addaction name="actionGroupDelete"/>
     <addaction name="actionGroupEmptyRecycleBin"/>
     <addaction name="separator"/>
@@ -350,7 +359,6 @@
     <property name="title">
      <string>&amp;Tools</string>
     </property>
-    <addaction name="actionLockDatabases"/>
     <addaction name="actionPasswordGenerator"/>
     <addaction name="actionSettings"/>
    </widget>
@@ -370,7 +378,6 @@
     <addaction name="menuTheme"/>
     <addaction name="actionCompactMode"/>
     <addaction name="actionAlwaysOnTop"/>
-    <addaction name="actionShowGroupsPanel"/>
     <addaction name="actionShowPreviewPanel"/>
     <addaction name="actionShowToolbar"/>
     <addaction name="actionHideUsernames"/>
@@ -383,7 +390,7 @@
    <addaction name="menuView"/>
    <addaction name="menuHelp"/>
   </widget>
-  <widget class="QToolBar" name="toolBar">
+  <widget class="KPToolBar" name="toolBar">
    <property name="contextMenuPolicy">
     <enum>Qt::PreventContextMenu</enum>
    </property>
@@ -404,6 +411,7 @@
    </attribute>
    <addaction name="actionDatabaseOpen"/>
    <addaction name="actionDatabaseSave"/>
+   <addaction name="actionLockDatabaseToolbar"/>
    <addaction name="separator"/>
    <addaction name="actionEntryNew"/>
    <addaction name="actionEntryEdit"/>
@@ -414,8 +422,6 @@
    <addaction name="actionEntryCopyURL"/>
    <addaction name="actionEntryAutoType"/>
    <addaction name="actionEntryAutoTypeExternal"/>
-   <addaction name="separator"/>
-   <addaction name="actionLockDatabases"/>
    <addaction name="separator"/>
    <addaction name="actionPasswordGenerator"/>
    <addaction name="actionSettings"/>
@@ -742,6 +748,20 @@
     <string notr="true">{PASSWORD}{ENTER}</string>
    </property>
   </action>
+  <action name="actionEntryAutoTypeTOTP">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string notr="true">{TOTP}</string>
+   </property>
+   <property name="iconText">
+    <string notr="true">{TOTP}</string>
+   </property>
+   <property name="toolTip">
+    <string notr="true">{TOTP}</string>
+   </property>
+  </action>
   <action name="actionEntryAutoTypeExternal">
    <property name="enabled">
     <bool>false</bool>
@@ -771,12 +791,20 @@
     <string>Open &amp;URL</string>
    </property>
   </action>
-  <action name="actionLockDatabases">
+  <action name="actionLockDatabase">
    <property name="enabled">
     <bool>false</bool>
    </property>
    <property name="text">
-    <string>&amp;Lock Databases</string>
+    <string>&amp;Lock Database</string>
+   </property>
+  </action>
+  <action name="actionLockAllDatabases">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>Lock &amp;All Databases</string>
    </property>
   </action>
   <action name="actionEntryCopyTitle">
@@ -994,17 +1022,6 @@
     <string>Show Toolbar</string>
    </property>
   </action>
-  <action name="actionShowGroupsPanel">
-   <property name="checkable">
-    <bool>true</bool>
-   </property>
-   <property name="checked">
-    <bool>true</bool>
-   </property>
-   <property name="text">
-    <string>Show Groups Panel</string>
-   </property>
-  </action>
   <action name="actionShowPreviewPanel">
    <property name="checkable">
     <bool>true</bool>
@@ -1063,18 +1080,45 @@
     <string notr="true">{USERNAME}{TAB}{PASSWORD}{ENTER}</string>
    </property>
   </action>
+  <action name="actionGroupClone">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>Clone Group...</string>
+   </property>
+  </action>
+  <action name="actionEntryRestore">
+   <property name="text">
+    <string notr="true" extracomment="Translatable string with plural form set in CPP file">Restore Entry(s)</string>
+   </property>
+   <property name="toolTip">
+    <string notr="true" extracomment="Translatable string with plural form set in CPP file">Restore Entry(s)</string>
+   </property>
+   <property name="shortcut">
+    <string notr="true">Ctrl+R</string>
+   </property>
+  </action>
+  <action name="actionLockDatabaseToolbar">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>&amp;Lock Database</string>
+   </property>
+  </action>
  </widget>
  <customwidgets>
-  <customwidget>
-   <class>PasswordGeneratorWidget</class>
-   <extends>QWidget</extends>
-   <header>gui/PasswordGeneratorWidget.h</header>
-   <container>1</container>
-  </customwidget>
   <customwidget>
    <class>MessageWidget</class>
    <extends>QWidget</extends>
    <header>gui/MessageWidget.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PasswordGeneratorWidget</class>
+   <extends>QWidget</extends>
+   <header>gui/PasswordGeneratorWidget.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>
@@ -1094,6 +1138,11 @@
    <extends>QWidget</extends>
    <header>gui/WelcomeWidget.h</header>
    <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>KPToolBar</class>
+   <extends>QToolBar</extends>
+   <header>gui/widgets/KPToolBar.h</header>
   </customwidget>
  </customwidgets>
  <resources/>

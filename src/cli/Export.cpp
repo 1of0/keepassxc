@@ -15,15 +15,13 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <cstdlib>
-#include <stdio.h>
-
 #include "Export.h"
 
-#include "cli/TextStream.h"
-#include "cli/Utils.h"
-#include "core/Database.h"
+#include "TextStream.h"
+#include "Utils.h"
 #include "format/CsvExporter.h"
+
+#include <QCommandLineParser>
 
 const QCommandLineOption Export::FormatOption = QCommandLineOption(
     QStringList() << "f"

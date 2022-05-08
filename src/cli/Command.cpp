@@ -15,18 +15,12 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <cstdio>
-#include <cstdlib>
-#include <utility>
-
-#include <QFileInfo>
-#include <QMap>
-
-#include "Command.h"
-
 #include "Add.h"
 #include "AddGroup.h"
 #include "Analyze.h"
+#include "AttachmentExport.h"
+#include "AttachmentImport.h"
+#include "AttachmentRemove.h"
 #include "Clip.h"
 #include "Close.h"
 #include "Create.h"
@@ -40,15 +34,18 @@
 #include "Import.h"
 #include "Info.h"
 #include "List.h"
-#include "Locate.h"
 #include "Merge.h"
 #include "Move.h"
 #include "Open.h"
 #include "Remove.h"
 #include "RemoveGroup.h"
+#include "Search.h"
 #include "Show.h"
-#include "TextStream.h"
 #include "Utils.h"
+
+#include <QCommandLineParser>
+#include <QFileInfo>
+#include <QRegularExpression>
 
 const QCommandLineOption Command::HelpOption = QCommandLineOption(QStringList()
 #ifdef Q_OS_WIN
@@ -113,7 +110,7 @@ QString Command::getDescriptionLine()
 {
     QString response = name;
     QString space(" ");
-    QString spaces = space.repeated(15 - name.length());
+    QString spaces = space.repeated(20 - name.length());
     response = response.append(spaces);
     response = response.append(description);
     response = response.append("\n");
@@ -144,10 +141,12 @@ QSharedPointer<QCommandLineParser> Command::getCommandLineParser(const QStringLi
         return {};
     }
     if (parser->positionalArguments().size() < positionalArguments.size()) {
+        err << QObject::tr("Missing positional argument(s).") << "\n\n";
         err << getHelpText();
         return {};
     }
     if (parser->positionalArguments().size() > (positionalArguments.size() + optionalArguments.size())) {
+        err << QObject::tr("Too many arguments provided.") << "\n\n";
         err << getHelpText();
         return {};
     }
@@ -168,6 +167,9 @@ namespace Commands
 
         s_commands.insert(QStringLiteral("add"), QSharedPointer<Command>(new Add()));
         s_commands.insert(QStringLiteral("analyze"), QSharedPointer<Command>(new Analyze()));
+        s_commands.insert(QStringLiteral("attachment-export"), QSharedPointer<Command>(new AttachmentExport()));
+        s_commands.insert(QStringLiteral("attachment-import"), QSharedPointer<Command>(new AttachmentImport()));
+        s_commands.insert(QStringLiteral("attachment-rm"), QSharedPointer<Command>(new AttachmentRemove()));
         s_commands.insert(QStringLiteral("clip"), QSharedPointer<Command>(new Clip()));
         s_commands.insert(QStringLiteral("close"), QSharedPointer<Command>(new Close()));
         s_commands.insert(QStringLiteral("db-create"), QSharedPointer<Command>(new Create()));
@@ -177,7 +179,6 @@ namespace Commands
         s_commands.insert(QStringLiteral("estimate"), QSharedPointer<Command>(new Estimate()));
         s_commands.insert(QStringLiteral("generate"), QSharedPointer<Command>(new Generate()));
         s_commands.insert(QStringLiteral("help"), QSharedPointer<Command>(new Help()));
-        s_commands.insert(QStringLiteral("locate"), QSharedPointer<Command>(new Locate()));
         s_commands.insert(QStringLiteral("ls"), QSharedPointer<Command>(new List()));
         s_commands.insert(QStringLiteral("merge"), QSharedPointer<Command>(new Merge()));
         s_commands.insert(QStringLiteral("mkdir"), QSharedPointer<Command>(new AddGroup()));
@@ -185,6 +186,7 @@ namespace Commands
         s_commands.insert(QStringLiteral("open"), QSharedPointer<Command>(new Open()));
         s_commands.insert(QStringLiteral("rm"), QSharedPointer<Command>(new Remove()));
         s_commands.insert(QStringLiteral("rmdir"), QSharedPointer<Command>(new RemoveGroup()));
+        s_commands.insert(QStringLiteral("search"), QSharedPointer<Command>(new Search()));
         s_commands.insert(QStringLiteral("show"), QSharedPointer<Command>(new Show()));
 
         if (interactive) {

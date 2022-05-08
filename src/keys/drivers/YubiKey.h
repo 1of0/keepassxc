@@ -1,6 +1,6 @@
 /*
  *  Copyright (C) 2014 Kyle Manna <kyle@kylemanna.com>
- *  Copyright (C) 2017 KeePassXC Team <team@keepassxc.org>
+ *  Copyright (C) 2017-2021 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@
 #include <QMutex>
 #include <QObject>
 #include <QTimer>
+#include <botan/secmem.h>
 
 typedef QPair<unsigned int, int> YubiKeySlot;
 Q_DECLARE_METATYPE(YubiKeySlot);
@@ -35,22 +36,23 @@ class YubiKey : public QObject
     Q_OBJECT
 
 public:
-    enum ChallengeResult
+    enum class ChallengeResult : int
     {
-        ERROR,
-        SUCCESS,
-        WOULDBLOCK
+        YCR_ERROR = 0,
+        YCR_SUCCESS = 1,
+        YCR_WOULDBLOCK = 2
     };
 
     static YubiKey* instance();
     bool isInitialized();
 
-    void findValidKeys();
+    bool findValidKeys();
+    void findValidKeysAsync();
 
     QList<YubiKeySlot> foundKeys();
     QString getDisplayName(YubiKeySlot slot);
 
-    ChallengeResult challenge(YubiKeySlot slot, const QByteArray& challenge, QByteArray& response);
+    ChallengeResult challenge(YubiKeySlot slot, const QByteArray& challenge, Botan::secure_vector<char>& response);
     bool testChallenge(YubiKeySlot slot, bool* wouldBlock = nullptr);
 
     QString errorMessage();
@@ -75,27 +77,15 @@ signals:
     void challengeStarted();
     void challengeCompleted();
 
-    /**
-     * Emitted when an error occurred during challenge/response
-     */
-    void challengeError(QString error);
-
 private:
     explicit YubiKey();
-    ~YubiKey();
 
     static YubiKey* m_instance;
 
-    ChallengeResult
-    performChallenge(void* key, int slot, bool mayBlock, const QByteArray& challenge, QByteArray& response);
-    bool performTestChallenge(void* key, int slot, bool* wouldBlock);
-
-    QHash<unsigned int, QList<QPair<int, QString>>> m_foundKeys;
-
-    QMutex m_mutex;
     QTimer m_interactionTimer;
     bool m_initialized = false;
     QString m_error;
+    QMutex m_interfaces_detect_mutex;
 
     Q_DISABLE_COPY(YubiKey)
 };

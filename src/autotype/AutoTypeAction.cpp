@@ -32,14 +32,15 @@ AutoTypeKey::AutoTypeKey(const QChar& character, Qt::KeyboardModifiers modifiers
 {
 }
 
-void AutoTypeKey::exec(AutoTypeExecutor* executor) const
+AutoTypeAction::Result AutoTypeKey::exec(AutoTypeExecutor* executor) const
 {
-    executor->execType(this);
+    return executor->execType(this);
 }
 
-void AutoTypeKey::exec(TargetedAutoTypeExecutor* executor, QSharedPointer<AutoTypeTarget> target)
+AutoTypeAction::Result AutoTypeKey::exec(TargetedAutoTypeExecutor* executor,
+                                         QSharedPointer<AutoTypeTarget> target) const
 {
-    executor->execType(this, target);
+    return executor->execType(this, target);
 }
 
 AutoTypeDelay::AutoTypeDelay(int delayMs, bool setExecDelay)
@@ -48,7 +49,7 @@ AutoTypeDelay::AutoTypeDelay(int delayMs, bool setExecDelay)
 {
 }
 
-void AutoTypeDelay::exec(AutoTypeExecutor* executor) const
+AutoTypeAction::Result AutoTypeDelay::exec(AutoTypeExecutor* executor) const
 {
     if (setExecDelay) {
         // Change the delay between actions
@@ -57,9 +58,29 @@ void AutoTypeDelay::exec(AutoTypeExecutor* executor) const
         // Pause execution
         Tools::wait(delayMs);
     }
+
+    return AutoTypeAction::Result::Ok();
 }
 
-void AutoTypeDelay::exec(TargetedAutoTypeExecutor* executor, QSharedPointer<AutoTypeTarget> target)
+AutoTypeAction::Result AutoTypeClearField::exec(AutoTypeExecutor* executor) const
+{
+    return executor->execClearField(this);
+}
+
+AutoTypeAction::Result AutoTypeBegin::exec(AutoTypeExecutor* executor) const
+{
+    return executor->execBegin(this);
+}
+
+AutoTypeAction::Result AutoTypeBegin::exec(TargetedAutoTypeExecutor* executor,
+                                           QSharedPointer<AutoTypeTarget> target) const
+{
+    Q_UNUSED(target);
+    return executor->execBegin(this, target);
+}
+
+AutoTypeAction::Result AutoTypeDelay::exec(TargetedAutoTypeExecutor* executor,
+                                           QSharedPointer<AutoTypeTarget> target) const
 {
     Q_UNUSED(target);
     if (setExecDelay) {
@@ -69,14 +90,31 @@ void AutoTypeDelay::exec(TargetedAutoTypeExecutor* executor, QSharedPointer<Auto
         // Pause execution
         Tools::wait(delayMs);
     }
+
+    return AutoTypeAction::Result::Ok();
 }
 
-void AutoTypeClearField::exec(AutoTypeExecutor* executor) const
+AutoTypeMode::AutoTypeMode(AutoTypeExecutor::Mode mode)
+    : mode(mode)
 {
-    executor->execClearField(this);
 }
 
-void AutoTypeClearField::exec(TargetedAutoTypeExecutor* executor, QSharedPointer<AutoTypeTarget> target)
+AutoTypeAction::Result AutoTypeMode::exec(AutoTypeExecutor* executor) const
 {
-    executor->execClearField(this, target);
+    executor->mode = mode;
+    return AutoTypeAction::Result::Ok();
+}
+
+AutoTypeAction::Result AutoTypeMode::exec(TargetedAutoTypeExecutor* executor,
+                                          QSharedPointer<AutoTypeTarget> target) const
+{
+    Q_UNUSED(target)
+    executor->mode = mode;
+    return AutoTypeAction::Result::Ok();
+}
+
+AutoTypeAction::Result AutoTypeClearField::exec(TargetedAutoTypeExecutor* executor,
+                                                QSharedPointer<AutoTypeTarget> target) const
+{
+    return executor->execClearField(this, target);
 }

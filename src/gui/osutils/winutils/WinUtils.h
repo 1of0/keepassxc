@@ -25,7 +25,12 @@
 #include <QScopedPointer>
 #include <QSharedPointer>
 
-#include <windef.h>
+#undef NOMINMAX
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#define NOGDI
+#include <windows.h>
+#undef MessageBox
 
 class WinUtils : public OSUtilsBase, QAbstractNativeEventFilter
 {
@@ -49,7 +54,7 @@ public:
                                 QString* error = nullptr) override;
     bool unregisterGlobalShortcut(const QString& name) override;
 
-    DWORD qtToNativeKeyCode(Qt::Key key);
+    WORD qtToNativeKeyCode(Qt::Key key);
     DWORD qtToNativeModifiers(Qt::KeyboardModifiers modifiers);
 
     bool canPreventScreenCapture() const override;

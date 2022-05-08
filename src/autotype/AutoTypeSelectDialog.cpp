@@ -38,6 +38,7 @@
 AutoTypeSelectDialog::AutoTypeSelectDialog(QWidget* parent)
     : QDialog(parent)
     , m_ui(new Ui::AutoTypeSelectDialog())
+    , m_lastMatch(nullptr, QString())
 {
     setAttribute(Qt::WA_DeleteOnClose);
     // Places the window on the active (virtual) desktop instead of where the main window is.
@@ -57,29 +58,21 @@ AutoTypeSelectDialog::AutoTypeSelectDialog(QWidget* parent)
         }
     });
 
-    m_ui->search->setFocus();
+    m_ui->helpButton->setIcon(icons()->icon("system-help"));
+
     m_ui->search->installEventFilter(this);
 
-    m_searchTimer.setInterval(300);
+    m_searchTimer.setInterval(0);
     m_searchTimer.setSingleShot(true);
 
     connect(m_ui->search, SIGNAL(textChanged(QString)), &m_searchTimer, SLOT(start()));
     connect(m_ui->search, SIGNAL(returnPressed()), SLOT(activateCurrentMatch()));
     connect(&m_searchTimer, SIGNAL(timeout()), SLOT(performSearch()));
 
-    connect(m_ui->filterRadio, &QRadioButton::toggled, this, [this](bool checked) {
-        if (checked) {
-            // Reset to original match list
-            m_ui->view->setMatchList(m_matches);
-            performSearch();
-            m_ui->search->setFocus();
-        }
-    });
-    connect(m_ui->searchRadio, &QRadioButton::toggled, this, [this](bool checked) {
-        if (checked) {
-            performSearch();
-            m_ui->search->setFocus();
-        }
+    m_ui->searchCheckBox->setShortcut(Qt::CTRL + Qt::Key_F);
+    connect(m_ui->searchCheckBox, &QCheckBox::toggled, this, [this](bool checked) {
+        setDelayedSearch(checked);
+        performSearch();
     });
 
     m_actionMenu->installEventFilter(this);
@@ -95,80 +88,93 @@ AutoTypeSelectDialog::~AutoTypeSelectDialog()
 {
 }
 
-void AutoTypeSelectDialog::setMatches(const QList<AutoTypeMatch>& matches, const QList<QSharedPointer<Database>>& dbs)
+void AutoTypeSelectDialog::setMatches(const QList<AutoTypeMatch>& matches,
+                                      const QList<QSharedPointer<Database>>& dbs,
+                                      const AutoTypeMatch& lastMatch)
 {
     m_matches = matches;
     m_dbs = dbs;
+    m_lastMatch = lastMatch;
+    bool noMatches = m_matches.isEmpty();
 
-    m_ui->view->setMatchList(m_matches);
-    if (m_matches.isEmpty()) {
-        m_ui->searchRadio->setChecked(true);
-    } else {
-        m_ui->filterRadio->setChecked(true);
-    }
+    // disable changing search scope if we have no direct matches
+    m_ui->searchCheckBox->setDisabled(noMatches);
+
+    // changing check also performs search so block signals temporarily
+    bool blockSignals = m_ui->searchCheckBox->blockSignals(true);
+    m_ui->searchCheckBox->setChecked(noMatches);
+    m_ui->searchCheckBox->blockSignals(blockSignals);
+
+    // always perform search when updating matches to refresh view
+    performSearch();
+    setDelayedSearch(noMatches);
+}
+
+void AutoTypeSelectDialog::setSearchString(const QString& search)
+{
+    m_ui->search->setText(search);
+    m_ui->searchCheckBox->setChecked(true);
+}
+
+void AutoTypeSelectDialog::setDelayedSearch(bool state)
+{
+    m_searchTimer.setInterval(state ? 150 : 0);
 }
 
 void AutoTypeSelectDialog::submitAutoTypeMatch(AutoTypeMatch match)
 {
-    m_accepted = true;
-    accept();
-    emit matchActivated(std::move(match));
+    if (match.first) {
+        m_accepted = true;
+        accept();
+        emit matchActivated(std::move(match), m_virtualMode);
+    }
 }
 
 void AutoTypeSelectDialog::performSearch()
 {
-    if (m_ui->filterRadio->isChecked()) {
+    if (!m_ui->searchCheckBox->isChecked()) {
+        m_ui->view->setMatchList(m_matches);
         m_ui->view->filterList(m_ui->search->text());
-        return;
-    }
+    } else {
+        auto searchText = m_ui->search->text();
+        // If no search text, find all entries
+        if (searchText.isEmpty()) {
+            searchText.append("*");
+        }
 
-    auto searchText = m_ui->search->text();
-    // If no search text, find all entries
-    if (searchText.isEmpty()) {
-        searchText.append("*");
-    }
-
-    EntrySearcher searcher;
-    QList<AutoTypeMatch> matches;
-    for (const auto& db : m_dbs) {
-        auto found = searcher.search(searchText, db->rootGroup());
-        for (auto* entry : found) {
-            QSet<QString> sequences;
-            auto defSequence = entry->effectiveAutoTypeSequence();
-            if (!defSequence.isEmpty()) {
-                matches.append({entry, defSequence});
-                sequences << defSequence;
-            }
-            for (const auto& assoc : entry->autoTypeAssociations()->getAll()) {
-                if (!sequences.contains(assoc.sequence) && !assoc.sequence.isEmpty()) {
-                    matches.append({entry, assoc.sequence});
-                    sequences << assoc.sequence;
+        EntrySearcher searcher;
+        QList<AutoTypeMatch> matches;
+        for (const auto& db : m_dbs) {
+            auto found = searcher.search(searchText, db->rootGroup());
+            for (auto* entry : found) {
+                QSet<QString> sequences;
+                auto defSequence = entry->effectiveAutoTypeSequence();
+                if (!defSequence.isEmpty()) {
+                    matches.append({entry, defSequence});
+                    sequences << defSequence;
+                }
+                for (const auto& assoc : entry->autoTypeAssociations()->getAll()) {
+                    if (!sequences.contains(assoc.sequence) && !assoc.sequence.isEmpty()) {
+                        matches.append({entry, assoc.sequence});
+                        sequences << assoc.sequence;
+                    }
                 }
             }
         }
+
+        m_ui->view->setMatchList(matches);
     }
 
-    m_ui->view->setMatchList(matches);
-}
-
-void AutoTypeSelectDialog::moveSelectionUp()
-{
-    auto current = m_ui->view->currentIndex();
-    auto previous = current.sibling(current.row() - 1, 0);
-
-    if (previous.isValid()) {
-        m_ui->view->setCurrentIndex(previous);
+    bool selected = false;
+    if (m_lastMatch.first) {
+        selected = m_ui->view->selectMatch(m_lastMatch);
     }
-}
 
-void AutoTypeSelectDialog::moveSelectionDown()
-{
-    auto current = m_ui->view->currentIndex();
-    auto next = current.sibling(current.row() + 1, 0);
-
-    if (next.isValid()) {
-        m_ui->view->setCurrentIndex(next);
+    if (!selected && !m_ui->search->text().isEmpty()) {
+        m_ui->view->selectFirstMatch();
     }
+
+    m_ui->search->setFocus();
 }
 
 void AutoTypeSelectDialog::activateCurrentMatch()
@@ -214,10 +220,16 @@ bool AutoTypeSelectDialog::eventFilter(QObject* obj, QEvent* event)
             auto* keyEvent = static_cast<QKeyEvent*>(event);
             switch (keyEvent->key()) {
             case Qt::Key_Up:
-                moveSelectionUp();
+                m_ui->view->moveSelection(-1);
                 return true;
             case Qt::Key_Down:
-                moveSelectionDown();
+                m_ui->view->moveSelection(1);
+                return true;
+            case Qt::Key_PageUp:
+                m_ui->view->moveSelection(-5);
+                return true;
+            case Qt::Key_PageDown:
+                m_ui->view->moveSelection(5);
                 return true;
             case Qt::Key_Escape:
                 if (m_ui->search->text().isEmpty()) {
@@ -270,37 +282,74 @@ void AutoTypeSelectDialog::buildActionMenu()
     m_actionMenu->addAction(typeUsernameAction);
     m_actionMenu->addAction(typePasswordAction);
     m_actionMenu->addAction(typeTotpAction);
+#ifdef Q_OS_WIN
+    auto typeVirtualAction = new QAction(icons()->icon("auto-type"), tr("Use Virtual Keyboard"));
+    m_actionMenu->addAction(typeVirtualAction);
+#endif
     m_actionMenu->addAction(copyUsernameAction);
     m_actionMenu->addAction(copyPasswordAction);
     m_actionMenu->addAction(copyTotpAction);
 
+    typeUsernameAction->setShortcut(Qt::CTRL + Qt::Key_1);
     connect(typeUsernameAction, &QAction::triggered, this, [&] {
         auto match = m_ui->view->currentMatch();
         match.second = "{USERNAME}";
         submitAutoTypeMatch(match);
     });
+
+    typePasswordAction->setShortcut(Qt::CTRL + Qt::Key_2);
     connect(typePasswordAction, &QAction::triggered, this, [&] {
         auto match = m_ui->view->currentMatch();
         match.second = "{PASSWORD}";
         submitAutoTypeMatch(match);
     });
+
+    typeTotpAction->setShortcut(Qt::CTRL + Qt::Key_3);
     connect(typeTotpAction, &QAction::triggered, this, [&] {
         auto match = m_ui->view->currentMatch();
         match.second = "{TOTP}";
         submitAutoTypeMatch(match);
     });
 
+#ifdef Q_OS_WIN
+    typeVirtualAction->setShortcut(Qt::CTRL + Qt::Key_4);
+    connect(typeVirtualAction, &QAction::triggered, this, [&] {
+        m_virtualMode = true;
+        activateCurrentMatch();
+    });
+#endif
+
+#if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
+    // Qt 5.10 introduced a new "feature" to hide shortcuts in context menus
+    // Unfortunately, Qt::AA_DontShowShortcutsInContextMenus is broken, have to manually enable them
+    typeUsernameAction->setShortcutVisibleInContextMenu(true);
+    typePasswordAction->setShortcutVisibleInContextMenu(true);
+    typeTotpAction->setShortcutVisibleInContextMenu(true);
+#ifdef Q_OS_WIN
+    typeVirtualAction->setShortcutVisibleInContextMenu(true);
+#endif
+#endif
+
     connect(copyUsernameAction, &QAction::triggered, this, [&] {
-        clipboard()->setText(m_ui->view->currentMatch().first->username());
-        reject();
+        auto entry = m_ui->view->currentMatch().first;
+        if (entry) {
+            clipboard()->setText(entry->resolvePlaceholder(entry->username()));
+            reject();
+        }
     });
     connect(copyPasswordAction, &QAction::triggered, this, [&] {
-        clipboard()->setText(m_ui->view->currentMatch().first->password());
-        reject();
+        auto entry = m_ui->view->currentMatch().first;
+        if (entry) {
+            clipboard()->setText(entry->resolvePlaceholder(entry->password()));
+            reject();
+        }
     });
     connect(copyTotpAction, &QAction::triggered, this, [&] {
-        clipboard()->setText(m_ui->view->currentMatch().first->totp());
-        reject();
+        auto entry = m_ui->view->currentMatch().first;
+        if (entry) {
+            clipboard()->setText(entry->totp());
+            reject();
+        }
     });
 }
 

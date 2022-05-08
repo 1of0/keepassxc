@@ -21,7 +21,7 @@ if(WITH_XC_BROWSER)
 
     # Alloc must be defined in a static library to prevent clashing with clang ASAN definitions
     add_library(proxy_alloc STATIC ../core/Alloc.cpp)
-    target_link_libraries(proxy_alloc PRIVATE Qt5::Core ${sodium_LIBRARY_RELEASE})
+    target_link_libraries(proxy_alloc PRIVATE Qt5::Core ${BOTAN2_LIBRARIES})
 
     add_executable(keepassxc-proxy ${proxy_SOURCES})
     target_link_libraries(keepassxc-proxy proxy_alloc Qt5::Core Qt5::Network)
@@ -34,12 +34,14 @@ if(WITH_XC_BROWSER)
         add_custom_command(TARGET keepassxc-proxy
                 POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/keepassxc-proxy ${PROXY_APP_DIR}/keepassxc-proxy
-                COMMAND ${MACDEPLOYQT_EXE} ${PROGNAME}.app -executable=${PROXY_APP_DIR}/keepassxc-proxy -no-plugins 2> /dev/null
                 WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/src
-                COMMENT "Deploying keepassxc-proxy")
+                COMMENT "Copying keepassxc-proxy into app bundle")
+
+        set_property(GLOBAL APPEND PROPERTY
+            _MACDEPLOYQT_EXTRA_BINARIES "${PROXY_INSTALL_DIR}/keepassxc-proxy")
     endif()
 
-    if(MINGW)
+    if(WIN32)
       target_link_libraries(keepassxc-proxy Wtsapi32.lib Ws2_32.lib)
     endif()
 endif()

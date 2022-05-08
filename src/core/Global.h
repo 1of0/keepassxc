@@ -21,7 +21,6 @@
 #define KEEPASSX_GLOBAL_H
 
 #include <QString>
-#include <QtGlobal>
 
 #if defined(Q_OS_WIN)
 #if defined(KEEPASSX_BUILDING_CORE)
@@ -45,13 +44,6 @@
 
 static const auto TRUE_STR = QStringLiteral("true");
 static const auto FALSE_STR = QStringLiteral("false");
-
-enum IconSize
-{
-    Default,
-    Medium,
-    Large
-};
 
 enum class AuthDecision
 {

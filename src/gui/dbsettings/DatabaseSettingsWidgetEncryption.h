@@ -22,9 +22,6 @@
 
 #include "crypto/kdf/Kdf.h"
 
-#include <QPointer>
-#include <QScopedPointer>
-
 class Database;
 namespace Ui
 {
@@ -64,7 +61,7 @@ private slots:
     void updateDecryptionTime(int value);
     void updateFormatCompatibility(int index, bool retransform = true);
     void setupAlgorithmComboBox();
-    void setupKdfComboBox();
+    void setupKdfComboBox(bool enableKdbx3);
     void loadKdfParameters();
     void updateKdfFields();
     void activateChangeDecryptionTime();

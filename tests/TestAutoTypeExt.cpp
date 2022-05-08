@@ -16,14 +16,15 @@
  */
 
 #include "TestAutoTypeExt.h"
-#include "TestGlobal.h"
 
+#include <QTest>
 #include <QPluginLoader>
 
 #include "autotype/AutoType.h"
 #include "autotype/AutoTypeExternalPlugin.h"
 #include "autotype/ext-test/AutoTypeExtTestInterface.h"
 #include "core/Config.h"
+#include "core/Group.h"
 #include "core/Resources.h"
 #include "crypto/Crypto.h"
 #include "gui/osutils/OSUtils.h"

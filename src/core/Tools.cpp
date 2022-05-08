@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 2012 Felix Geyer <debfx@fobos.de>
  *  Copyright (C) 2017 Lennart Glauer <mail@lennart-glauer.de>
- *  Copyright (C) 2017 KeePassXC Team <team@keepassxc.org>
+ *  Copyright (C) 2021 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,28 +20,25 @@
 #include "Tools.h"
 
 #include "config-keepassx.h"
-#include "core/Config.h"
-#include "core/Translator.h"
-
 #include "git-info.h"
+
+#include "core/Clock.h"
+
 #include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QEventLoop>
+#include <QFileInfo>
 #include <QIODevice>
-#include <QImageReader>
 #include <QLocale>
+#include <QMetaProperty>
 #include <QRegularExpression>
 #include <QStringList>
-#include <QSysInfo>
 #include <QUrl>
 #include <QUuid>
-#include <cctype>
+#include <cmath>
 
 #ifdef Q_OS_WIN
 #include <windows.h> // for Sleep()
-#endif
-
-#ifdef Q_OS_UNIX
-#include <time.h> // for nanosleep()
 #endif
 
 namespace Tools
@@ -99,18 +96,14 @@ namespace Tools
 #ifdef WITH_XC_SSHAGENT
         extensions += "\n- " + QObject::tr("SSH Agent");
 #endif
-#if defined(WITH_XC_KEESHARE_SECURE) && defined(WITH_XC_KEESHARE_INSECURE)
-        extensions += "\n- " + QObject::tr("KeeShare (signed and unsigned sharing)");
-#elif defined(WITH_XC_KEESHARE_SECURE)
-        extensions += "\n- " + QObject::tr("KeeShare (only signed sharing)");
-#elif defined(WITH_XC_KEESHARE_INSECURE)
-        extensions += "\n- " + QObject::tr("KeeShare (only unsigned sharing)");
+#ifdef WITH_XC_KEESHARE
+        extensions += "\n- " + QObject::tr("KeeShare");
 #endif
 #ifdef WITH_XC_YUBIKEY
         extensions += "\n- " + QObject::tr("YubiKey");
 #endif
-#ifdef WITH_XC_TOUCHID
-        extensions += "\n- " + QObject::tr("TouchID");
+#if defined(Q_OS_MACOS) || defined(Q_CC_MSVC)
+        extensions += "\n- " + QObject::tr("Quick Unlock");
 #endif
 #ifdef WITH_XC_FDOSECRETS
         extensions += "\n- " + QObject::tr("Secret Service Integration");
@@ -142,6 +135,37 @@ namespace Tools
         }
 
         return QString("%1 %2").arg(QLocale().toString(size, 'f', precision), units.at(i));
+    }
+
+    QString humanReadableTimeDifference(qint64 seconds)
+    {
+        constexpr double secondsInHour = 3600;
+        constexpr double secondsInDay = secondsInHour * 24;
+        constexpr double secondsInWeek = secondsInDay * 7;
+        constexpr double secondsInMonth = secondsInDay * 30; // Approximation
+        constexpr double secondsInYear = secondsInDay * 365;
+
+        seconds = abs(seconds);
+
+        if (seconds >= secondsInYear) {
+            auto years = std::floor(seconds / secondsInYear);
+            return QObject::tr("over %1 year(s)", nullptr, years).arg(years);
+        } else if (seconds >= secondsInMonth) {
+            auto months = std::round(seconds / secondsInMonth);
+            return QObject::tr("about %1 month(s)", nullptr, months).arg(months);
+        } else if (seconds >= secondsInWeek) {
+            auto weeks = std::round(seconds / secondsInWeek);
+            return QObject::tr("%1 week(s)", nullptr, weeks).arg(weeks);
+        } else if (seconds >= secondsInDay) {
+            auto days = std::floor(seconds / secondsInDay);
+            return QObject::tr("%1 day(s)", nullptr, days).arg(days);
+        } else if (seconds >= secondsInHour) {
+            auto hours = std::floor(seconds / secondsInHour);
+            return QObject::tr("%1 hour(s)", nullptr, hours).arg(hours);
+        }
+
+        auto minutes = std::floor(seconds / 60);
+        return QObject::tr("%1 minute(s)", nullptr, minutes).arg(minutes);
     }
 
     bool readFromDevice(QIODevice* device, QByteArray& data, int size)
@@ -179,24 +203,6 @@ namespace Tools
             data = result;
             return true;
         }
-    }
-
-    QString imageReaderFilter()
-    {
-        const QList<QByteArray> formats = QImageReader::supportedImageFormats();
-        QStringList formatsStringList;
-
-        for (const QByteArray& format : formats) {
-            for (char codePoint : format) {
-                if (!QChar(codePoint).isLetterOrNumber()) {
-                    continue;
-                }
-            }
-
-            formatsStringList.append("*." + QString::fromLatin1(format).toLower());
-        }
-
-        return formatsStringList.join(" ");
     }
 
     bool isHex(const QByteArray& ba)
@@ -267,6 +273,7 @@ namespace Tools
     bool checkUrlValid(const QString& urlField)
     {
         if (urlField.isEmpty() || urlField.startsWith("cmd://", Qt::CaseInsensitive)
+            || urlField.startsWith("kdbx://", Qt::CaseInsensitive)
             || urlField.startsWith("{REF:A", Qt::CaseInsensitive)) {
             return true;
         }
@@ -292,27 +299,35 @@ namespace Tools
         return true;
     }
 
-    // Escape common regex symbols except for *, ?, and |
-    auto regexEscape = QRegularExpression(R"re(([-[\]{}()+.,\\\/^$#]))re");
+    // Escape regex symbols
+    auto regexEscape = QRegularExpression(R"re(([-[\]{}()+.,\\\/^$#|*?]))re");
 
-    QRegularExpression convertToRegex(const QString& string, bool useWildcards, bool exactMatch, bool caseSensitive)
+    QRegularExpression convertToRegex(const QString& string, int opts)
     {
         QString pattern = string;
 
         // Wildcard support (*, ?, |)
-        if (useWildcards) {
+        if (opts & RegexConvertOpts::WILDCARD_ALL || opts & RegexConvertOpts::ESCAPE_REGEX) {
             pattern.replace(regexEscape, "\\\\1");
-            pattern.replace("*", ".*");
-            pattern.replace("?", ".");
+
+            if (opts & RegexConvertOpts::WILDCARD_UNLIMITED_MATCH) {
+                pattern.replace("\\*", ".*");
+            }
+            if (opts & RegexConvertOpts::WILDCARD_SINGLE_MATCH) {
+                pattern.replace("\\?", ".");
+            }
+            if (opts & RegexConvertOpts::WILDCARD_LOGICAL_OR) {
+                pattern.replace("\\|", "|");
+            }
         }
 
         // Exact modifier
-        if (exactMatch) {
+        if (opts & RegexConvertOpts::EXACT_MATCH) {
             pattern = "^" + pattern + "$";
         }
 
         auto regex = QRegularExpression(pattern);
-        if (!caseSensitive) {
+        if ((opts & RegexConvertOpts::CASE_SENSITIVE) != RegexConvertOpts::CASE_SENSITIVE) {
             regex.setPatternOptions(QRegularExpression::CaseInsensitiveOption);
         }
 
@@ -327,6 +342,20 @@ namespace Tools
     QUuid hexToUuid(const QString& uuid)
     {
         return QUuid::fromRfc4122(QByteArray::fromHex(uuid.toLatin1()));
+    }
+
+    bool isValidUuid(const QString& uuidStr)
+    {
+        if (uuidStr.isEmpty() || uuidStr.length() != 32 || !isHex(uuidStr.toLatin1())) {
+            return false;
+        }
+
+        const auto uuid = hexToUuid(uuidStr);
+        if (uuid.isNull()) {
+            return false;
+        }
+
+        return true;
     }
 
     QString envSubstitute(const QString& filepath, QProcessEnvironment environment)
@@ -356,29 +385,55 @@ namespace Tools
         return subbed;
     }
 
-    Buffer::Buffer()
-        : raw(nullptr)
-        , size(0)
+    QVariantMap qo2qvm(const QObject* object, const QStringList& ignoredProperties)
     {
-    }
+        QVariantMap result;
+        const QMetaObject* metaobject = object->metaObject();
+        int count = metaobject->propertyCount();
+        for (int i = 0; i < count; ++i) {
+            QMetaProperty metaproperty = metaobject->property(i);
+            const char* name = metaproperty.name();
 
-    Buffer::~Buffer()
-    {
-        clear();
-    }
+            if (ignoredProperties.contains(QLatin1String(name)) || (!metaproperty.isReadable())) {
+                continue;
+            }
 
-    void Buffer::clear()
-    {
-        if (size > 0) {
-            free(raw);
+            QVariant value = object->property(name);
+            result[QLatin1String(name)] = value;
         }
-        raw = nullptr;
-        size = 0;
+        return result;
     }
 
-    QByteArray Buffer::content() const
+    QString substituteBackupFilePath(QString pattern, const QString& databasePath)
     {
-        return QByteArray(reinterpret_cast<char*>(raw), size);
-    }
+        // Fail if substitution fails
+        if (databasePath.isEmpty()) {
+            return {};
+        }
 
+        // Replace backup pattern
+        QFileInfo dbFileInfo(databasePath);
+        QString baseName = dbFileInfo.completeBaseName();
+
+        pattern.replace(QString("{DB_FILENAME}"), baseName);
+
+        auto re = QRegularExpression(R"(\{TIME(?::([^\\]*))?\})");
+        auto match = re.match(pattern);
+        while (match.hasMatch()) {
+            // Extract time format specifier
+            auto formatSpecifier = QString("dd_MM_yyyy_hh-mm-ss");
+            if (!match.captured(1).isEmpty()) {
+                formatSpecifier = match.captured(1);
+            }
+            auto replacement = Clock::currentDateTime().toString(formatSpecifier);
+            pattern.replace(match.capturedStart(), match.capturedLength(), replacement);
+            match = re.match(pattern);
+        }
+
+        // Replace escaped braces
+        pattern.replace("\\{", "{");
+        pattern.replace("\\}", "}");
+
+        return pattern;
+    }
 } // namespace Tools

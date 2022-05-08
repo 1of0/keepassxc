@@ -22,41 +22,29 @@
 #include "BaseStyle.h"
 #include "phantomcolor.h"
 
-#include <QAbstractItemView>
+#include <QAction>
 #include <QApplication>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFile>
 #include <QHeaderView>
 #include <QListView>
-#include <QMainWindow>
-#include <QMenu>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPoint>
-#include <QPolygon>
-#include <QPushButton>
-#include <QScrollBar>
-#include <QSharedData>
-#include <QSlider>
-#include <QSpinBox>
-#include <QSplitter>
 #include <QString>
-#include <QStyleOption>
 #include <QTableView>
 #include <QToolBar>
 #include <QToolButton>
-#include <QTreeView>
-#include <QWindow>
 #include <QWizard>
-#include <QtMath>
-#include <qdrawutil.h>
+#include <QtCore>
 
 #ifdef Q_OS_MACOS
+#include <QMainWindow>
+#if QT_VERSION >= QT_VERSION_CHECK(5, 9, 0)
 #include <QOperatingSystemVersion>
 #endif
-
-#include <cmath>
+#endif
 
 #include "gui/Icons.h"
 
@@ -293,16 +281,22 @@ namespace Phantom
 #ifdef Q_OS_MACOS
             QColor tabBarBase(const QPalette& pal)
             {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 12, 10) && QT_VERSION < QT_VERSION_CHECK(5, 13, 0)                               \
+    || QT_VERSION >= QT_VERSION_CHECK(5, 15, 1)
                 if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::MacOSBigSur) {
                     return hack_isLightPalette(pal) ? QRgb(0xD4D4D4) : QRgb(0x2A2A2A);
                 }
+#endif
                 return hack_isLightPalette(pal) ? QRgb(0xDD1D1D1) : QRgb(0x252525);
             }
             QColor tabBarBaseInactive(const QPalette& pal)
             {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 12, 10) && QT_VERSION < QT_VERSION_CHECK(5, 13, 0)                               \
+    || QT_VERSION >= QT_VERSION_CHECK(5, 15, 1)
                 if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::MacOSBigSur) {
                     return hack_isLightPalette(pal) ? QRgb(0xF5F5F5) : QRgb(0x2D2D2D);
                 }
+#endif
                 return hack_isLightPalette(pal) ? QRgb(0xF4F4F4) : QRgb(0x282828);
             }
 #endif

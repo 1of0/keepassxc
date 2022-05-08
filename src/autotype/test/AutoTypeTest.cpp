@@ -102,12 +102,20 @@ AutoTypeExecutorTest::AutoTypeExecutorTest(AutoTypePlatformTest* platform)
 {
 }
 
-void AutoTypeExecutorTest::execType(const AutoTypeKey* action)
-{
-    m_platform->addAction(action);
-}
-
-void AutoTypeExecutorTest::execClearField(const AutoTypeClearField* action)
+AutoTypeAction::Result AutoTypeExecutorTest::execBegin(const AutoTypeBegin* action)
 {
     Q_UNUSED(action);
+    return AutoTypeAction::Result::Ok();
+}
+
+AutoTypeAction::Result AutoTypeExecutorTest::execType(const AutoTypeKey* action)
+{
+    m_platform->addAction(action);
+    return AutoTypeAction::Result::Ok();
+}
+
+AutoTypeAction::Result AutoTypeExecutorTest::execClearField(const AutoTypeClearField* action)
+{
+    Q_UNUSED(action);
+    return AutoTypeAction::Result::Ok();
 }

@@ -1,6 +1,6 @@
 /*
- *  Copyright (C) 2018 KeePassXC Team <team@keepassxc.org>
  *  Copyright (C) 2010 Felix Geyer <debfx@fobos.de>
+ *  Copyright (C) 2021 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,9 +20,8 @@
 #define KEEPASSX_DATABASEWIDGET_H
 
 #include <QFileSystemWatcher>
-#include <QScopedPointer>
+#include <QListView>
 #include <QStackedWidget>
-#include <QTimer>
 
 #include "DatabaseOpenDialog.h"
 #include "config-keepassx.h"
@@ -74,7 +73,7 @@ public:
 
     explicit DatabaseWidget(QSharedPointer<Database> db, QWidget* parent = nullptr);
     explicit DatabaseWidget(const QString& filePath, QWidget* parent = nullptr);
-    ~DatabaseWidget();
+    ~DatabaseWidget() override;
 
     void setFocus(Qt::FocusReason reason);
 
@@ -96,6 +95,7 @@ public:
     EntryView* entryView();
 
     Group* currentGroup() const;
+    bool canCloneCurrentGroup() const;
     bool canDeleteCurrentGroup() const;
     bool isGroupSelected() const;
     bool isRecycleBinSelected() const;
@@ -118,10 +118,9 @@ public:
 
     QByteArray entryViewState() const;
     bool setEntryViewState(const QByteArray& state) const;
-    QList<int> mainSplitterSizes() const;
-    void setMainSplitterSizes(const QList<int>& sizes);
-    QList<int> previewSplitterSizes() const;
-    void setPreviewSplitterSizes(const QList<int>& sizes);
+    QHash<Config::ConfigKey, QList<int>> splitterSizes() const;
+    void setSplitterSizes(const QHash<Config::ConfigKey, QList<int>>& sizes);
+    void setSearchStringForAutoType(const QString& search);
 
 signals:
     // relayed Database signals
@@ -148,10 +147,11 @@ signals:
     void listModeActivated();
     void searchModeAboutToActivate();
     void searchModeActivated();
-    void mainSplitterSizesChanged();
-    void previewSplitterSizesChanged();
+    void splitterSizesChanged();
     void entryViewStateChanged();
     void clearSearch();
+    void requestGlobalAutoType(const QString& search);
+    void requestSearch(const QString& search);
 
 public slots:
     bool lock();
@@ -163,6 +163,7 @@ public slots:
     void createEntry();
     void cloneEntry();
     void deleteSelectedEntries();
+    void restoreSelectedEntries();
     void deleteEntries(QList<Entry*> entries, bool confirm = true);
     void focusOnEntries(bool editIfFocused = false);
     void focusOnGroups(bool editIfFocused = false);
@@ -174,6 +175,7 @@ public slots:
     void copyURL();
     void copyNotes();
     void copyAttribute(QAction* action);
+    void filterByTag(const QModelIndex& index);
     void showTotp();
     void showTotpKeyQrCode();
     void copyTotp();
@@ -187,12 +189,15 @@ public slots:
     void performAutoTypeUsernameEnter();
     void performAutoTypePassword();
     void performAutoTypePasswordEnter();
+    void performAutoTypeTOTP();
     void performAutoTypePluginLibvirt();
     void openUrl();
     void downloadSelectedFavicons();
     void downloadAllFavicons();
+    void downloadFaviconInBackground(Entry* entry);
     void openUrlForEntry(Entry* entry);
     void createGroup();
+    void cloneGroup();
     void deleteGroup();
     void switchToMainView(bool previousDialogAccepted = false);
     void switchToEntryEdit();
@@ -256,8 +261,7 @@ private:
     void setClipboardTextAndMinimize(const QString& text);
     void processAutoOpen();
     void openDatabaseFromEntry(const Entry* entry, bool inBackground = true);
-    bool confirmDeleteEntries(QList<Entry*> entries, bool permanent);
-    void performIconDownloads(const QList<Entry*>& entries, bool force = false);
+    void performIconDownloads(const QList<Entry*>& entries, bool force = false, bool downloadInBackground = false);
     bool performSave(QString& errorMessage, const QString& fileName = {});
     void performAutoTypeWithPlugin(const QString& pluginName, Entry* entry);
 
@@ -265,6 +269,7 @@ private:
 
     QPointer<QWidget> m_mainWidget;
     QPointer<QSplitter> m_mainSplitter;
+    QPointer<QSplitter> m_groupSplitter;
     QPointer<MessageWidget> m_messageWidget;
     QPointer<EntryPreviewWidget> m_previewView;
     QPointer<QSplitter> m_previewSplitter;
@@ -280,6 +285,7 @@ private:
     QPointer<KeePass1OpenWidget> m_keepass1OpenWidget;
     QPointer<OpVaultOpenWidget> m_opVaultOpenWidget;
     QPointer<GroupView> m_groupView;
+    QPointer<QListView> m_tagView;
     QPointer<EntryView> m_entryView;
 
     QScopedPointer<Group> m_newGroup;
@@ -292,12 +298,15 @@ private:
     int m_saveAttempts;
 
     // Search state
-    EntrySearcher* m_EntrySearcher;
+    QScopedPointer<EntrySearcher> m_entrySearcher;
     QString m_lastSearchText;
     bool m_searchLimitGroup;
 
     // Autoreload
     bool m_blockAutoSave;
+
+    // Auto-Type related
+    QString m_searchStringForAutoType;
 };
 
 #endif // KEEPASSX_DATABASEWIDGET_H

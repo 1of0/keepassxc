@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2019 KeePassXC Team <team@keepassxc.org>
+ *  Copyright (C) 2021 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -18,20 +18,20 @@
 #include "IconDownloaderDialog.h"
 #include "ui_IconDownloaderDialog.h"
 
-#include "core/AsyncTask.h"
 #include "core/Config.h"
+#include "core/Database.h"
 #include "core/Entry.h"
-#include "core/Global.h"
-#include "core/Group.h"
 #include "core/Metadata.h"
 #include "core/Tools.h"
 #include "gui/IconDownloader.h"
 #include "gui/IconModels.h"
+#include "gui/Icons.h"
+#include "osutils/OSUtils.h"
 #ifdef Q_OS_MACOS
 #include "gui/osutils/macutils/MacUtils.h"
 #endif
 
-#include <QMutexLocker>
+#include <QStandardItemModel>
 
 IconDownloaderDialog::IconDownloaderDialog(QWidget* parent)
     : QDialog(parent)
@@ -102,6 +102,23 @@ void IconDownloaderDialog::downloadFavicons(const QSharedPointer<Database>& data
     }
 }
 
+void IconDownloaderDialog::downloadFaviconInBackground(const QSharedPointer<Database>& database, Entry* entry)
+{
+    m_db = database;
+    m_urlToEntries.clear();
+    abortDownloads();
+
+    auto webUrl = entry->webUrl();
+    if (!webUrl.isEmpty()) {
+        m_urlToEntries.insert(webUrl, entry);
+    }
+
+    if (m_urlToEntries.count() > 0) {
+        m_activeDownloaders.append(createDownloader(webUrl));
+        m_activeDownloaders.first()->download();
+    }
+}
+
 IconDownloader* IconDownloaderDialog::createDownloader(const QString& url)
 {
     auto downloader = new IconDownloader();
@@ -131,15 +148,17 @@ void IconDownloaderDialog::downloadFinished(const QString& url, const QImage& ic
 
     if (m_db && !icon.isNull()) {
         // Don't add an icon larger than 128x128, but retain original size if smaller
-        auto scaledicon = icon;
-        if (icon.width() > 128 || icon.height() > 128) {
-            scaledicon = icon.scaled(128, 128);
+        constexpr auto maxIconSize = 128;
+        auto scaledIcon = icon;
+        if (icon.width() > maxIconSize || icon.height() > maxIconSize) {
+            scaledIcon = icon.scaled(maxIconSize, maxIconSize);
         }
 
-        QUuid uuid = m_db->metadata()->findCustomIcon(scaledicon);
+        QByteArray serializedIcon = Icons::saveToBytes(scaledIcon);
+        QUuid uuid = m_db->metadata()->findCustomIcon(serializedIcon);
         if (uuid.isNull()) {
             uuid = QUuid::createUuid();
-            m_db->metadata()->addCustomIcon(uuid, scaledicon);
+            m_db->metadata()->addCustomIcon(uuid, serializedIcon);
             updateTable(url, tr("Ok"));
         } else {
             updateTable(url, tr("Already Exists"));
@@ -190,7 +209,7 @@ void IconDownloaderDialog::updateTable(const QString& url, const QString& messag
 void IconDownloaderDialog::abortDownloads()
 {
     for (auto* downloader : m_activeDownloaders) {
-        delete downloader;
+        downloader->deleteLater();
     }
     m_activeDownloaders.clear();
     updateProgressBar();

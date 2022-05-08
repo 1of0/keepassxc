@@ -20,17 +20,14 @@
 
 #include "fdosecrets/FdoSecretsPlugin.h"
 #include "fdosecrets/FdoSecretsSettings.h"
-#include "fdosecrets/dbus/DBusMgr.h"
-#include "fdosecrets/objects/Session.h"
 #include "fdosecrets/widgets/RowButtonHelper.h"
 #include "fdosecrets/widgets/SettingsModels.h"
+#include "objects/Service.h"
 
 #include "gui/DatabaseWidget.h"
-#include "gui/Icons.h"
 
 #include <QAction>
-#include <QHeaderView>
-#include <QToolBar>
+#include <QToolButton>
 
 using FdoSecrets::DBusClientPtr;
 using FdoSecrets::SettingsClientModel;
@@ -38,7 +35,7 @@ using FdoSecrets::SettingsDatabaseModel;
 
 namespace
 {
-    class ManageDatabase : public QToolBar
+    class ManageDatabase : public QWidget
     {
         Q_OBJECT
 
@@ -46,18 +43,9 @@ namespace
 
     public:
         explicit ManageDatabase(FdoSecretsPlugin* plugin, QWidget* parent = nullptr)
-            : QToolBar(parent)
+            : QWidget(parent)
             , m_plugin(plugin)
         {
-            setFloatable(false);
-            setMovable(false);
-
-            // use a dummy widget to center the buttons
-            auto spacer = new QWidget(this);
-            spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-            spacer->setVisible(true);
-            addWidget(spacer);
-
             // db settings
             m_dbSettingsAct = new QAction(tr("Database settings"), this);
             m_dbSettingsAct->setIcon(icons()->icon(QStringLiteral("document-edit")));
@@ -67,14 +55,12 @@ namespace
                 if (!m_dbWidget) {
                     return;
                 }
-                auto db = m_dbWidget;
                 m_plugin->serviceInstance()->doSwitchToDatabaseSettings(m_dbWidget);
             });
-            addAction(m_dbSettingsAct);
 
             // unlock/lock
             m_lockAct = new QAction(tr("Unlock database"), this);
-            m_lockAct->setIcon(icons()->icon(QStringLiteral("object-locked")));
+            m_lockAct->setIcon(icons()->icon(QStringLiteral("object-unlocked")));
             m_lockAct->setToolTip(tr("Unlock database to show more information"));
             connect(m_lockAct, &QAction::triggered, this, [this]() {
                 if (!m_dbWidget) {
@@ -87,13 +73,23 @@ namespace
                 }
             });
 
-            addAction(m_lockAct);
+            // layout
+            auto dbSettingsBtn = new QToolButton(this);
+            dbSettingsBtn->setAutoRaise(true);
+            dbSettingsBtn->setDefaultAction(m_dbSettingsAct);
 
-            // use a dummy widget to center the buttons
-            spacer = new QWidget(this);
-            spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-            spacer->setVisible(true);
-            addWidget(spacer);
+            auto lockBtn = new QToolButton(this);
+            lockBtn->setAutoRaise(true);
+            lockBtn->setDefaultAction(m_lockAct);
+
+            auto layout = new QHBoxLayout(this);
+            layout->setContentsMargins(1, 1, 1, 1);
+            layout->setSpacing(1);
+
+            layout->addStretch();
+            layout->addWidget(dbSettingsBtn);
+            layout->addWidget(lockBtn);
+            layout->addStretch();
         }
 
         DatabaseWidget* dbWidget() const
@@ -131,14 +127,20 @@ namespace
                 return;
             }
             connect(m_dbWidget, &DatabaseWidget::databaseLocked, this, [this]() {
+                if (!m_lockAct || !m_dbSettingsAct) {
+                    return;
+                }
                 m_lockAct->setText(tr("Unlock database"));
-                m_lockAct->setIcon(icons()->icon(QStringLiteral("object-locked")));
+                m_lockAct->setIcon(icons()->icon(QStringLiteral("object-unlocked")));
                 m_lockAct->setToolTip(tr("Unlock database to show more information"));
                 m_dbSettingsAct->setEnabled(false);
             });
             connect(m_dbWidget, &DatabaseWidget::databaseUnlocked, this, [this]() {
+                if (!m_lockAct || !m_dbSettingsAct) {
+                    return;
+                }
                 m_lockAct->setText(tr("Lock database"));
-                m_lockAct->setIcon(icons()->icon(QStringLiteral("object-unlocked")));
+                m_lockAct->setIcon(icons()->icon(QStringLiteral("object-locked")));
                 m_lockAct->setToolTip(tr("Lock database"));
                 m_dbSettingsAct->setEnabled(true);
             });
@@ -151,7 +153,7 @@ namespace
         QAction* m_lockAct = nullptr;
     };
 
-    class ManageSession : public QToolBar
+    class ManageSession : public QWidget
     {
         Q_OBJECT
 
@@ -159,17 +161,8 @@ namespace
 
     public:
         explicit ManageSession(QWidget* parent = nullptr)
-            : QToolBar(parent)
+            : QWidget(parent)
         {
-            setFloatable(false);
-            setMovable(false);
-
-            // use a dummy widget to center the buttons
-            auto spacer = new QWidget(this);
-            spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-            spacer->setVisible(true);
-            addWidget(spacer);
-
             auto disconnectAct = new QAction(tr("Disconnect"), this);
             disconnectAct->setIcon(icons()->icon(QStringLiteral("dialog-close")));
             disconnectAct->setToolTip(tr("Disconnect this application"));
@@ -178,13 +171,33 @@ namespace
                     m_client->disconnectDBus();
                 }
             });
-            addAction(disconnectAct);
 
-            // use a dummy widget to center the buttons
-            spacer = new QWidget(this);
-            spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-            spacer->setVisible(true);
-            addWidget(spacer);
+            auto resetAct = new QAction(tr("Reset"), this);
+            resetAct->setIcon(icons()->icon(QStringLiteral("refresh")));
+            resetAct->setToolTip(tr("Reset any remembered decisions for this application"));
+            connect(resetAct, &QAction::triggered, this, [this]() {
+                if (m_client) {
+                    m_client->clearAuthorization();
+                }
+            });
+
+            // layout
+            auto disconnectBtn = new QToolButton(this);
+            disconnectBtn->setAutoRaise(true);
+            disconnectBtn->setDefaultAction(disconnectAct);
+
+            auto resetBtn = new QToolButton(this);
+            resetBtn->setAutoRaise(true);
+            resetBtn->setDefaultAction(resetAct);
+
+            auto layout = new QHBoxLayout(this);
+            layout->setContentsMargins(1, 1, 1, 1);
+            layout->setSpacing(1);
+
+            layout->addStretch();
+            layout->addWidget(resetBtn);
+            layout->addWidget(disconnectBtn);
+            layout->addStretch();
         }
 
         const DBusClientPtr& client() const
@@ -213,28 +226,30 @@ SettingsWidgetFdoSecrets::SettingsWidgetFdoSecrets(FdoSecretsPlugin* plugin, QWi
 
     auto clientModel = new SettingsClientModel(*plugin->dbus(), this);
     m_ui->tableClients->setModel(clientModel);
-    installWidgetItemDelegate<ManageSession>(
-        m_ui->tableClients, 1, [](QWidget* p, const QModelIndex&) { return new ManageSession(p); });
+    installWidgetItemDelegate<ManageSession>(m_ui->tableClients,
+                                             SettingsClientModel::ColumnManage,
+                                             [](QWidget* p, const QModelIndex&) { return new ManageSession(p); });
 
     // config header after setting model, otherwise the header doesn't have enough sections
     auto clientViewHeader = m_ui->tableClients->horizontalHeader();
     clientViewHeader->setSelectionMode(QAbstractItemView::NoSelection);
     clientViewHeader->setSectionsClickable(false);
-    clientViewHeader->setSectionResizeMode(0, QHeaderView::Stretch); // application
-    clientViewHeader->setSectionResizeMode(1, QHeaderView::ResizeToContents); // disconnect button
+    clientViewHeader->setSectionResizeMode(QHeaderView::ResizeToContents);
+    clientViewHeader->setSectionResizeMode(SettingsClientModel::ColumnApplication, QHeaderView::Stretch);
 
     auto dbModel = new SettingsDatabaseModel(plugin->dbTabs(), this);
     m_ui->tableDatabases->setModel(dbModel);
     installWidgetItemDelegate<ManageDatabase>(
-        m_ui->tableDatabases, 2, [plugin](QWidget* p, const QModelIndex&) { return new ManageDatabase(plugin, p); });
+        m_ui->tableDatabases, SettingsDatabaseModel::ColumnManage, [plugin](QWidget* p, const QModelIndex&) {
+            return new ManageDatabase(plugin, p);
+        });
 
     // config header after setting model, otherwise the header doesn't have enough sections
     auto dbViewHeader = m_ui->tableDatabases->horizontalHeader();
     dbViewHeader->setSelectionMode(QAbstractItemView::NoSelection);
     dbViewHeader->setSectionsClickable(false);
-    dbViewHeader->setSectionResizeMode(0, QHeaderView::Stretch); // file name
-    dbViewHeader->setSectionResizeMode(1, QHeaderView::Stretch); // group
-    dbViewHeader->setSectionResizeMode(2, QHeaderView::ResizeToContents); // manage button
+    dbViewHeader->setSectionResizeMode(QHeaderView::Stretch);
+    dbViewHeader->setSectionResizeMode(SettingsDatabaseModel::ColumnManage, QHeaderView::ResizeToContents);
 
     // prompt the user to save settings before the sections are enabled
     connect(m_plugin, &FdoSecretsPlugin::secretServiceStarted, this, &SettingsWidgetFdoSecrets::updateServiceState);
@@ -257,6 +272,7 @@ void SettingsWidgetFdoSecrets::loadSettings()
     m_ui->showNotification->setChecked(FdoSecrets::settings()->showNotification());
     m_ui->confirmDeleteItem->setChecked(FdoSecrets::settings()->confirmDeleteItem());
     m_ui->confirmAccessItem->setChecked(FdoSecrets::settings()->confirmAccessItem());
+    m_ui->unlockBeforeSearch->setChecked(FdoSecrets::settings()->unlockBeforeSearch());
 }
 
 void SettingsWidgetFdoSecrets::saveSettings()
@@ -265,6 +281,7 @@ void SettingsWidgetFdoSecrets::saveSettings()
     FdoSecrets::settings()->setShowNotification(m_ui->showNotification->isChecked());
     FdoSecrets::settings()->setConfirmDeleteItem(m_ui->confirmDeleteItem->isChecked());
     FdoSecrets::settings()->setConfirmAccessItem(m_ui->confirmAccessItem->isChecked());
+    FdoSecrets::settings()->setUnlockBeforeSearch(m_ui->unlockBeforeSearch->isChecked());
 }
 
 void SettingsWidgetFdoSecrets::showEvent(QShowEvent* event)

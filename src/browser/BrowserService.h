@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 2013 Francois Ferrand
  *  Copyright (C) 2017 Sami Vänttinen <sami.vanttinen@protonmail.com>
- *  Copyright (C) 2020 KeePassXC Team <team@keepassxc.org>
+ *  Copyright (C) 2021 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -21,10 +21,9 @@
 #define BROWSERSERVICE_H
 
 #include "core/Entry.h"
-#include <QObject>
-#include <QPointer>
-#include <QSharedPointer>
-#include <QtCore>
+#include "gui/PasswordGeneratorWidget.h"
+
+class QLocalSocket;
 
 typedef QPair<QString, QString> StringPair;
 typedef QList<StringPair> StringPairList;
@@ -59,6 +58,12 @@ public:
     QJsonObject getDatabaseGroups();
     QJsonObject createNewGroup(const QString& groupName);
     QString getCurrentTotp(const QString& uuid);
+    void showPasswordGenerator(QLocalSocket* socket,
+                               const QString& nonce,
+                               const QString& publicKey,
+                               const QString& secretKey);
+    void sendPassword(QLocalSocket* socket, const QJsonObject& message);
+    bool isPasswordGeneratorRequested() const;
 
     void addEntry(const QString& dbid,
                   const QString& login,
@@ -68,6 +73,7 @@ public:
                   const QString& realm,
                   const QString& group,
                   const QString& groupUuid,
+                  const bool downloadFavicon,
                   const QSharedPointer<Database>& selectedDb = {});
     bool updateEntry(const QString& dbid,
                      const QString& uuid,
@@ -75,6 +81,7 @@ public:
                      const QString& password,
                      const QString& siteUrlStr,
                      const QString& formUrlStr);
+    bool deleteEntry(const QString& uuid);
 
     QJsonArray findMatchingEntries(const QString& dbid,
                                    const QString& siteUrlStr,
@@ -83,6 +90,7 @@ public:
                                    const StringPairList& keyList,
                                    const bool httpAuth = false);
 
+    void requestGlobalAutoType(const QString& search);
     static void convertAttributesToCustomData(QSharedPointer<Database> db);
 
     static const QString KEEPASSXCBROWSER_NAME;
@@ -95,6 +103,7 @@ public:
 
 signals:
     void requestUnlock();
+    void passwordGenerated(QLocalSocket* socket, const QString& password, const QString& nonce);
 
 public slots:
     void databaseLocked(DatabaseWidget* dbWidget);
@@ -102,7 +111,7 @@ public slots:
     void activeDatabaseChanged(DatabaseWidget* dbWidget);
 
 private slots:
-    void processClientMessage(const QJsonObject& message);
+    void processClientMessage(QLocalSocket* socket, const QJsonObject& message);
 
 private:
     enum Access
@@ -135,9 +144,11 @@ private:
     Group* getDefaultEntryGroup(const QSharedPointer<Database>& selectedDb = {});
     int sortPriority(const QStringList& urls, const QString& siteUrlStr, const QString& formUrlStr);
     bool schemeFound(const QString& url);
+    bool isIpAddress(const QString& host) const;
     bool removeFirstDomain(QString& hostname);
     bool handleEntry(Entry* entry, const QString& url, const QString& submitUrl);
     bool handleURL(const QString& entryUrl, const QString& siteUrlStr, const QString& formUrlStr);
+    QString getTopLevelDomainFromUrl(const QString& url) const;
     QString baseDomain(const QString& hostname) const;
     QSharedPointer<Database> getDatabase();
     QSharedPointer<Database> selectedDatabase();
@@ -145,9 +156,9 @@ private:
     QString getDatabaseRecycleBinUuid();
     bool checkLegacySettings(QSharedPointer<Database> db);
     QStringList getEntryURLs(const Entry* entry);
-
     void hideWindow() const;
     void raiseWindow(const bool force = false);
+
     void updateWindowState();
 
     static bool moveSettingsToCustomData(Entry* entry, const QString& name);
@@ -158,10 +169,12 @@ private:
 
     bool m_dialogActive;
     bool m_bringToFrontRequested;
+    bool m_passwordGeneratorRequested;
     WindowState m_prevWindowState;
     QUuid m_keepassBrowserUUID;
 
     QPointer<DatabaseWidget> m_currentDatabaseWidget;
+    QScopedPointer<PasswordGeneratorWidget> m_passwordGenerator;
 
     Q_DISABLE_COPY(BrowserService);
 

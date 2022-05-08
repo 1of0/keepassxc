@@ -18,10 +18,27 @@
  */
 
 #include "AutoTypeXCB.h"
+#include "core/Tools.h"
+#include "gui/osutils/nixutils/X11Funcs.h"
+
+#include <QX11Info>
+#include <X11/XKBlib.h>
+#include <X11/Xutil.h>
+#include <X11/extensions/XTest.h>
+
+/* map of ASCII non-dead keys to equivalent dead keys that need to be repeated */
+static const QPair<KeySym, KeySym> deadMap[] = {
+    {XK_acute, XK_dead_acute},
+    {XK_grave, XK_dead_grave},
+    {XK_asciicircum, XK_dead_circumflex},
+    {XK_asciitilde, XK_dead_tilde},
+    {XK_asciitilde, XK_dead_perispomeni},
+};
 
 AutoTypePlatformX11::AutoTypePlatformX11()
 {
-    m_dpy = QX11Info::display();
+    // Qt handles XCB slightly differently so we open our own connection
+    m_dpy = XOpenDisplay(XDisplayString(QX11Info::display()));
     m_rootWindow = QX11Info::appRootWindow();
 
     m_atomWmState = XInternAtom(m_dpy, "WM_STATE", True);
@@ -42,15 +59,9 @@ AutoTypePlatformX11::AutoTypePlatformX11()
     m_classBlacklist << "xfdesktop"
                      << "xfce4-panel"; // Xfce 4
 
-    m_keysymTable = nullptr;
     m_xkb = nullptr;
-    m_remapKeycode = 0;
-    m_currentRemapKeysym = NoSymbol;
 
     m_loaded = true;
-
-    connect(nixUtils(), &NixUtils::keymapChanged, this, [this] { updateKeymap(); });
-    updateKeymap();
 }
 
 bool AutoTypePlatformX11::isAvailable()
@@ -65,33 +76,20 @@ bool AutoTypePlatformX11::isAvailable()
         return false;
     }
 
-    if (!m_xkb) {
-        XkbDescPtr kbd = getKeyboard();
-
-        if (!kbd) {
-            return false;
-        }
-
-        XkbFreeKeyboard(kbd, XkbAllComponentsMask, True);
-    }
-
     return true;
 }
 
 void AutoTypePlatformX11::unload()
 {
-    // Restore the KeyboardMapping to its original state.
-    if (m_currentRemapKeysym != NoSymbol) {
-        AddKeysym(NoSymbol);
-    }
-
-    if (m_keysymTable) {
-        XFree(m_keysymTable);
-    }
+    m_keymap.clear();
 
     if (m_xkb) {
         XkbFreeKeyboard(m_xkb, XkbAllComponentsMask, True);
+        m_xkb = nullptr;
     }
+
+    XCloseDisplay(m_dpy);
+    m_dpy = nullptr;
 
     m_loaded = false;
 }
@@ -304,22 +302,46 @@ void AutoTypePlatformX11::updateKeymap()
     if (m_xkb) {
         XkbFreeKeyboard(m_xkb, XkbAllComponentsMask, True);
     }
-    m_xkb = getKeyboard();
+    m_xkb = XkbGetMap(m_dpy, XkbAllClientInfoMask, XkbUseCoreKbd);
 
-    XDisplayKeycodes(m_dpy, &m_minKeycode, &m_maxKeycode);
-    if (m_keysymTable != nullptr) {
-        XFree(m_keysymTable);
-    }
-    m_keysymTable = XGetKeyboardMapping(m_dpy, m_minKeycode, m_maxKeycode - m_minKeycode + 1, &m_keysymPerKeycode);
+    /* workaround X11 bug https://gitlab.freedesktop.org/xorg/xserver/-/issues/1155 */
+    XkbSetMap(m_dpy, XkbAllClientInfoMask, m_xkb);
+    XSync(m_dpy, False);
 
-    /* determine the keycode to use for remapped keys */
-    if (m_remapKeycode == 0 || !isRemapKeycodeValid()) {
-        for (int keycode = m_minKeycode; keycode <= m_maxKeycode; keycode++) {
-            int inx = (keycode - m_minKeycode) * m_keysymPerKeycode;
-            if (m_keysymTable[inx] == NoSymbol) {
-                m_remapKeycode = keycode;
-                m_currentRemapKeysym = NoSymbol;
-                break;
+    /* Build updated keymap */
+    m_keymap.clear();
+    m_remapKeycode = 0;
+
+    for (int ckeycode = m_xkb->min_key_code; ckeycode < m_xkb->max_key_code; ckeycode++) {
+        int groups = XkbKeyNumGroups(m_xkb, ckeycode);
+
+        /* track highest remappable keycode, don't add to keymap */
+        if (groups == 0) {
+            m_remapKeycode = ckeycode;
+            continue;
+        }
+
+        for (int cgroup = 0; cgroup < groups; cgroup++) {
+            XkbKeyTypePtr type = XkbKeyKeyType(m_xkb, ckeycode, cgroup);
+
+            for (int clevel = 0; clevel < type->num_levels; clevel++) {
+                KeySym sym = XkbKeycodeToKeysym(m_dpy, ckeycode, cgroup, clevel);
+
+                int mask = 0;
+                for (int nmap = 0; nmap < type->map_count; nmap++) {
+                    XkbKTMapEntryRec map = type->map[nmap];
+                    if (map.active && map.level == clevel) {
+                        mask = map.mods.mask;
+                        break;
+                    }
+                }
+
+                /* explicitly disallow requiring lock modifiers (Caps Lock and Num Lock) */
+                if (mask & (LockMask | Mod2Mask)) {
+                    continue;
+                }
+
+                m_keymap.append(AutoTypePlatformX11::KeyDesc{sym, ckeycode, cgroup, mask});
             }
         }
     }
@@ -337,69 +359,11 @@ void AutoTypePlatformX11::updateKeymap()
         }
     }
     XFreeModifiermap(modifiers);
-
-    /* Xlib needs some time until the mapping is distributed to
-       all clients */
-    Tools::sleep(30);
-}
-
-bool AutoTypePlatformX11::isRemapKeycodeValid()
-{
-    int baseKeycode = (m_remapKeycode - m_minKeycode) * m_keysymPerKeycode;
-    for (int i = 0; i < m_keysymPerKeycode; i++) {
-        if (m_keysymTable[baseKeycode + i] == m_currentRemapKeysym) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-XkbDescPtr AutoTypePlatformX11::getKeyboard()
-{
-    int num_devices;
-    XID keyboard_id = XkbUseCoreKbd;
-    XDeviceInfo* devices = XListInputDevices(m_dpy, &num_devices);
-    if (!devices) {
-        return nullptr;
-    }
-
-    for (int i = 0; i < num_devices; i++) {
-        if (QString(devices[i].name) == "Virtual core XTEST keyboard") {
-            keyboard_id = devices[i].id;
-            break;
-        }
-    }
-
-    XFreeDeviceList(devices);
-
-    return XkbGetKeyboard(m_dpy, XkbCompatMapMask | XkbGeometryMask, keyboard_id);
 }
 
 // --------------------------------------------------------------------------
 // The following code is taken from xvkbd 3.0 and has been slightly modified.
 // --------------------------------------------------------------------------
-
-/*
- * Insert a specified keysym on the dedicated position in the keymap
- * table.
- */
-int AutoTypePlatformX11::AddKeysym(KeySym keysym)
-{
-    if (m_remapKeycode == 0) {
-        return 0;
-    }
-
-    int inx = (m_remapKeycode - m_minKeycode) * m_keysymPerKeycode;
-    m_keysymTable[inx] = keysym;
-    m_currentRemapKeysym = keysym;
-
-    XChangeKeyboardMapping(m_dpy, m_remapKeycode, m_keysymPerKeycode, &m_keysymTable[inx], 1);
-    XFlush(m_dpy);
-    updateKeymap();
-
-    return m_remapKeycode;
-}
 
 /*
  * Send event to the focused window.
@@ -413,6 +377,7 @@ void AutoTypePlatformX11::SendKeyEvent(unsigned keycode, bool press)
 
     XTestFakeKeyEvent(m_dpy, keycode, press, 0);
     XFlush(m_dpy);
+    XSync(m_dpy, False);
 
     XSetErrorHandler(oldHandler);
 }
@@ -435,43 +400,81 @@ void AutoTypePlatformX11::SendModifiers(unsigned int mask, bool press)
  * Determines the keycode and modifier mask for the given
  * keysym.
  */
-int AutoTypePlatformX11::GetKeycode(KeySym keysym, unsigned int* mask)
+bool AutoTypePlatformX11::GetKeycode(KeySym keysym, int* keycode, int* group, unsigned int* mask, bool* repeat)
 {
-    int keycode = XKeysymToKeycode(m_dpy, keysym);
+    const KeyDesc* desc = nullptr;
+    bool isDead = false;
 
-    if (keycode && keysymModifiers(keysym, keycode, mask)) {
-        return keycode;
-    }
-
-    /* no modifier matches => resort to remapping */
-    keycode = AddKeysym(keysym);
-    if (keycode && keysymModifiers(keysym, keycode, mask)) {
-        return keycode;
-    }
-
-    *mask = 0;
-    return 0;
-}
-
-bool AutoTypePlatformX11::keysymModifiers(KeySym keysym, int keycode, unsigned int* mask)
-{
-    int shift, mod;
-    unsigned int mods_rtrn;
-
-    /* determine whether there is a combination of the modifiers
-       (Mod1-Mod5) with or without shift which returns keysym */
-    for (shift = 0; shift < 2; shift++) {
-        for (mod = ControlMapIndex; mod <= Mod5MapIndex; mod++) {
-            KeySym keysym_rtrn;
-            *mask = (mod == ControlMapIndex) ? shift : shift | (1 << mod);
-            XkbTranslateKeyCode(m_xkb, keycode, *mask, &mods_rtrn, &keysym_rtrn);
-            if (keysym_rtrn == keysym) {
-                return true;
+    for (const auto& key : m_keymap) {
+        if (key.sym == keysym) {
+            // pick this description if we don't have any for this sym or this matches the current group
+            if (desc == nullptr || key.group == *group) {
+                desc = &key;
             }
         }
     }
 
+    // try to find the best dead key mapping if we're unlucky to have one
+    if (!desc) {
+        for (const auto& map : deadMap) {
+            if (map.first == keysym) {
+                for (const auto& key : m_keymap) {
+                    if (key.sym == map.second) {
+                        // same as above, we try to match the group so no breaking out
+                        if (desc == nullptr || key.group == *group) {
+                            desc = &key;
+                            isDead = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (desc) {
+        *keycode = desc->code;
+        *group = desc->group;
+        *mask = desc->mask;
+        *repeat = isDead;
+        return true;
+    }
+
+    /* if we can't find an existing key for this keysym, try remapping */
+    if (RemapKeycode(keysym)) {
+        *keycode = m_remapKeycode;
+        *group = 0;
+        *mask = 0;
+        *repeat = false;
+        return true;
+    }
+
     return false;
+}
+
+/*
+ * Get remapped keycode for any keysym.
+ */
+bool AutoTypePlatformX11::RemapKeycode(KeySym keysym)
+{
+    if (!m_remapKeycode) {
+        return false;
+    }
+
+    if (keysym != NoSymbol) {
+        int type = XkbOneLevelIndex;
+        if (XkbChangeTypesOfKey(m_xkb, m_remapKeycode, 1, XkbGroup1Mask, &type, NULL) != Success) {
+            return false;
+        }
+
+        XkbKeySymEntry(m_xkb, m_remapKeycode, 0, 0) = keysym;
+    } else {
+        XkbChangeTypesOfKey(m_xkb, m_remapKeycode, 0, XkbGroup1Mask, NULL, NULL);
+    }
+
+    XkbSetMap(m_dpy, XkbAllClientInfoMask, m_xkb);
+    XFlush(m_dpy);
+    XSync(m_dpy, False);
+    return true;
 }
 
 /*
@@ -479,23 +482,25 @@ bool AutoTypePlatformX11::keysymModifiers(KeySym keysym, int keycode, unsigned i
  * window to simulate keyboard.  If modifiers (shift, control, etc)
  * are set ON, many events will be sent.
  */
-void AutoTypePlatformX11::sendKey(KeySym keysym, unsigned int modifiers)
+AutoTypeAction::Result AutoTypePlatformX11::sendKey(KeySym keysym, unsigned int modifiers)
 {
     if (keysym == NoSymbol) {
-        qWarning("No such key: keysym=0x%lX", keysym);
-        return;
+        return AutoTypeAction::Result::Failed(tr("Trying to send invalid keysym."));
     }
 
     int keycode;
+    int group;
+    int group_active;
     unsigned int wanted_mask;
+    bool repeat;
 
-    /* determine keycode and mask for the given keysym */
-    keycode = GetKeycode(keysym, &wanted_mask);
-    if (keycode < 8 || keycode > 255) {
-        qWarning("Unable to get valid keycode for key: keysym=0x%lX", keysym);
-        return;
-    }
-    wanted_mask |= modifiers;
+    /* pull current active layout group */
+    XkbStateRec state;
+    XkbGetState(m_dpy, XkbUseCoreKbd, &state);
+    group_active = state.group;
+
+    /* tell GetKeycode we would prefer a key from active group */
+    group = group_active;
 
     Window root, child;
     int root_x, root_y, x, y;
@@ -504,62 +509,57 @@ void AutoTypePlatformX11::sendKey(KeySym keysym, unsigned int modifiers)
     XSync(m_dpy, False);
     XQueryPointer(m_dpy, m_rootWindow, &root, &child, &root_x, &root_y, &x, &y, &original_mask);
 
-    // modifiers that need to be pressed but aren't
+    /* fail permanently if Caps Lock is on */
+    if (original_mask & LockMask) {
+        return AutoTypeAction::Result::Failed(tr("Sequence aborted: Caps Lock is on"));
+    }
+
+    /* retry if keysym affecting modifier is held except Num Lock (Mod2Mask) */
+    if (original_mask & (ShiftMask | ControlMask | Mod1Mask | Mod3Mask | Mod4Mask | Mod5Mask)) {
+        return AutoTypeAction::Result::Retry(tr("Sequence aborted: Modifier keys held by user"));
+    }
+
+    /* determine keycode, group and mask for the given keysym */
+    if (!GetKeycode(keysym, &keycode, &group, &wanted_mask, &repeat)) {
+        return AutoTypeAction::Result::Failed(tr("Unable to get valid keycode for key: ")
+                                              + QString(XKeysymToString(keysym)));
+    }
+
+    wanted_mask |= modifiers;
+
+    /* modifiers that need to be held but aren't */
     unsigned int press_mask = wanted_mask & ~original_mask;
 
-    // modifiers that are pressed but maybe shouldn't
-    unsigned int release_check_mask = original_mask & ~wanted_mask;
-
-    // modifiers we need to release before sending the keycode
-    unsigned int release_mask = 0;
-
-    if (!modifiers) {
-        // check every release_check_mask individually if it affects the keysym we would generate
-        // if it doesn't we probably don't need to release it
-        for (int mod_index = ShiftMapIndex; mod_index <= Mod5MapIndex; mod_index++) {
-            if (release_check_mask & (1 << mod_index)) {
-                unsigned int mods_rtrn;
-                KeySym keysym_rtrn;
-                XkbTranslateKeyCode(m_xkb, keycode, wanted_mask | (1 << mod_index), &mods_rtrn, &keysym_rtrn);
-
-                if (keysym_rtrn != keysym) {
-                    release_mask |= (1 << mod_index);
-                }
-            }
-        }
-
-        // finally check if the combination of pressed modifiers that we chose to ignore affects the keysym
-        unsigned int mods_rtrn;
-        KeySym keysym_rtrn;
-        XkbTranslateKeyCode(
-            m_xkb, keycode, wanted_mask | (release_check_mask & ~release_mask), &mods_rtrn, &keysym_rtrn);
-        if (keysym_rtrn != keysym) {
-            // oh well, release all the modifiers we don't want
-            release_mask = release_check_mask;
-        }
-    } else {
-        release_mask = release_check_mask;
+    /* change layout group if necessary */
+    if (group_active != group) {
+        XkbLockGroup(m_dpy, XkbUseCoreKbd, group);
+        XFlush(m_dpy);
     }
 
-    /* set modifiers mask */
-    if ((release_mask | press_mask) & LockMask) {
-        SendModifiers(LockMask, true);
-        SendModifiers(LockMask, false);
-    }
-    SendModifiers(release_mask & ~LockMask, false);
-    SendModifiers(press_mask & ~LockMask, true);
+    /* hold modifiers */
+    SendModifiers(press_mask, true);
 
-    /* press and release release key */
-    SendKeyEvent(keycode, true);
-    SendKeyEvent(keycode, false);
-
-    /* restore previous modifiers mask */
-    SendModifiers(press_mask & ~LockMask, false);
-    SendModifiers(release_mask & ~LockMask, true);
-    if ((release_mask | press_mask) & LockMask) {
-        SendModifiers(LockMask, true);
-        SendModifiers(LockMask, false);
+    /* press and release key, with repeat if necessary */
+    for (int i = 0; i < (repeat ? 2 : 1); i++) {
+        SendKeyEvent(keycode, true);
+        SendKeyEvent(keycode, false);
     }
+
+    /* release modifiers */
+    SendModifiers(press_mask, false);
+
+    /* reset layout group if necessary */
+    if (group_active != group) {
+        XkbLockGroup(m_dpy, XkbUseCoreKbd, group_active);
+        XFlush(m_dpy);
+    }
+
+    /* reset remap to prevent leaking remap keysyms longer than necessary */
+    if (keycode == m_remapKeycode) {
+        RemapKeycode(NoSymbol);
+    }
+
+    return AutoTypeAction::Result::Ok();
 }
 
 int AutoTypePlatformX11::MyErrorHandler(Display* my_dpy, XErrorEvent* event)
@@ -579,23 +579,37 @@ AutoTypeExecutorX11::AutoTypeExecutorX11(AutoTypePlatformX11* platform)
 {
 }
 
-void AutoTypeExecutorX11::execType(const AutoTypeKey* action)
+AutoTypeAction::Result AutoTypeExecutorX11::execBegin(const AutoTypeBegin* action)
 {
-    if (action->key != Qt::Key_unknown) {
-        m_platform->sendKey(qtToNativeKeyCode(action->key), qtToNativeModifiers(action->modifiers));
-    } else {
-        m_platform->sendKey(qcharToNativeKeyCode(action->character), qtToNativeModifiers(action->modifiers));
-    }
-
-    Tools::sleep(execDelayMs);
+    Q_UNUSED(action);
+    m_platform->updateKeymap();
+    return AutoTypeAction::Result::Ok();
 }
 
-void AutoTypeExecutorX11::execClearField(const AutoTypeClearField* action)
+AutoTypeAction::Result AutoTypeExecutorX11::execType(const AutoTypeKey* action)
+{
+    AutoTypeAction::Result result;
+
+    if (action->key != Qt::Key_unknown) {
+        result = m_platform->sendKey(qtToNativeKeyCode(action->key), qtToNativeModifiers(action->modifiers));
+    } else {
+        result = m_platform->sendKey(qcharToNativeKeyCode(action->character), qtToNativeModifiers(action->modifiers));
+    }
+
+    if (result.isOk()) {
+        Tools::sleep(execDelayMs);
+    }
+
+    return result;
+}
+
+AutoTypeAction::Result AutoTypeExecutorX11::execClearField(const AutoTypeClearField* action)
 {
     Q_UNUSED(action);
     execType(new AutoTypeKey(Qt::Key_Home, Qt::ControlModifier));
     execType(new AutoTypeKey(Qt::Key_End, Qt::ControlModifier | Qt::ShiftModifier));
     execType(new AutoTypeKey(Qt::Key_Backspace));
+    return AutoTypeAction::Result::Ok();
 }
 
 bool AutoTypePlatformX11::raiseWindow(WId window)

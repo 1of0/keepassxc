@@ -20,11 +20,12 @@
 #define KEEPASSX_MAINWINDOW_H
 
 #include <QActionGroup>
+#include <QLabel>
 #include <QMainWindow>
+#include <QProgressBar>
 #include <QSystemTrayIcon>
 
 #include "core/SignalMultiplexer.h"
-#include "gui/Application.h"
 #include "gui/DatabaseWidget.h"
 #include "gui/osutils/ScreenLockListener.h"
 
@@ -133,7 +134,6 @@ private slots:
     void trayIconTriggered(QSystemTrayIcon::ActivationReason reason);
     void processTrayIconTrigger();
     void lockDatabasesAfterInactivity();
-    void forgetTouchIDAfterInactivity();
     void handleScreenLock();
     void showErrorMessage(const QString& message);
     void selectNextDatabaseTab();
@@ -143,6 +143,8 @@ private slots:
     void releaseContextFocusLock();
     void agentEnabled(bool enabled);
     void updateTrayIcon();
+    void updateProgressBar(int percentage, QString message);
+    void focusSearchWidget();
 
 private:
     static void setShortcut(QAction* action, QKeySequence::StandardKey standard, int fallback = 0);
@@ -174,6 +176,8 @@ private:
     QPointer<QSystemTrayIcon> m_trayIcon;
     QPointer<ScreenLockListener> m_screenLockListener;
     QPointer<SearchWidget> m_searchWidget;
+    QPointer<QProgressBar> m_progressBar;
+    QPointer<QLabel> m_progressBarLabel;
 
     Q_DISABLE_COPY(MainWindow)
 

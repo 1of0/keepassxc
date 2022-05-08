@@ -19,12 +19,8 @@
 #ifndef KEEPASSX_ENTRY_H
 #define KEEPASSX_ENTRY_H
 
-#include <QImage>
 #include <QMap>
-#include <QPixmap>
 #include <QPointer>
-#include <QSet>
-#include <QUrl>
 #include <QUuid>
 
 #include "core/AutoTypeAssociations.h"
@@ -69,13 +65,15 @@ struct EntryData
     TimeInfo timeInfo;
     QSharedPointer<Totp::Settings> totpSettings;
     QSharedPointer<PasswordHealth> passwordHealth;
+    bool excludeFromReports;
+    QUuid previousParentGroupUuid;
 
     bool operator==(const EntryData& other) const;
     bool operator!=(const EntryData& other) const;
     bool equals(const EntryData& other, CompareItemOptions options) const;
 };
 
-class Entry : public QObject
+class Entry : public ModifiableObject
 {
     Q_OBJECT
 
@@ -84,14 +82,13 @@ public:
     ~Entry();
     const QUuid& uuid() const;
     const QString uuidToHex() const;
-    QImage icon() const;
-    QPixmap iconPixmap(IconSize size = IconSize::Default) const;
     int iconNumber() const;
     const QUuid& iconUuid() const;
     QString foregroundColor() const;
     QString backgroundColor() const;
     QString overrideUrl() const;
     QString tags() const;
+    QStringList tagList() const;
     const TimeInfo& timeInfo() const;
     bool autoTypeEnabled() const;
     int autoTypeObfuscation() const;
@@ -102,6 +99,7 @@ public:
     const AutoTypeAssociations* autoTypeAssociations() const;
     QString title() const;
     QString url() const;
+    QStringList getAllUrls() const;
     QString webUrl() const;
     QString displayUrl() const;
     QString username() const;
@@ -111,14 +109,19 @@ public:
     QString totp() const;
     QString totpSettingsString() const;
     QSharedPointer<Totp::Settings> totpSettings() const;
+    Group* previousParentGroup();
+    const Group* previousParentGroup() const;
+    QUuid previousParentGroupUuid() const;
     int size() const;
     QString path() const;
-    const QSharedPointer<PasswordHealth>& passwordHealth();
+    const QSharedPointer<PasswordHealth> passwordHealth();
+    const QSharedPointer<PasswordHealth> passwordHealth() const;
     bool excludeFromReports() const;
     void setExcludeFromReports(bool state);
 
     bool hasTotp() const;
     bool isExpired() const;
+    bool willExpireInDays(int days) const;
     bool isRecycled() const;
     bool isAttributeReference(const QString& key) const;
     bool isAttributeReferenceOf(const QString& key, const QUuid& uuid) const;
@@ -152,6 +155,8 @@ public:
     void setExpires(const bool& value);
     void setExpiryTime(const QDateTime& dateTime);
     void setTotp(QSharedPointer<Totp::Settings> settings);
+    void setPreviousParentGroup(const Group* group);
+    void setPreviousParentGroupUuid(const QUuid& uuid);
 
     QList<Entry*> historyItems();
     const QList<Entry*>& historyItems() const;
@@ -248,7 +253,7 @@ public:
 
     Group* group();
     const Group* group() const;
-    void setGroup(Group* group);
+    void setGroup(Group* group, bool trackPrevious = true);
     const Database* database() const;
     Database* database();
 
@@ -260,7 +265,6 @@ signals:
      * Emitted when a default attribute has been changed.
      */
     void entryDataChanged(Entry* entry);
-    void entryModified();
 
 private slots:
     void emitDataChanged();

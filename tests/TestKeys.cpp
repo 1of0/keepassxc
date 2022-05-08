@@ -17,18 +17,20 @@
  */
 
 #include "TestKeys.h"
-#include "TestGlobal.h"
 
 #include <QBuffer>
+#include <QTest>
 
 #include "config-keepassx-tests.h"
 
+#include "core/Database.h"
 #include "core/Metadata.h"
 #include "crypto/Crypto.h"
 #include "crypto/CryptoHash.h"
 #include "crypto/kdf/AesKdf.h"
 #include "format/KeePass2Reader.h"
 #include "format/KeePass2Writer.h"
+#include "keys/CompositeKey.h"
 #include "keys/FileKey.h"
 #include "keys/PasswordKey.h"
 #include "mock/MockChallengeResponseKey.h"
@@ -64,6 +66,11 @@ void TestKeys::testComposite()
     compositeKey3->addKey(QSharedPointer<PasswordKey>::create("test"));
     compositeKey3->clear();
     QCOMPARE(compositeKey3->rawKey(), compositeKey4->rawKey());
+
+    // Test serialization
+    auto data = compositeKey1->serialize();
+    compositeKey3->deserialize(data);
+    QCOMPARE(compositeKey1->rawKey(), compositeKey3->rawKey());
 }
 
 void TestKeys::testFileKey()
@@ -102,7 +109,7 @@ void TestKeys::testFileKey()
     compositeKey->addKey(fileKey);
 
     auto db = QSharedPointer<Database>::create();
-    QVERIFY(db->open(dbFilename, compositeKey, nullptr, false));
+    QVERIFY(db->open(dbFilename, compositeKey, nullptr));
     QVERIFY(!reader.hasError());
     QCOMPARE(db->metadata()->name(), QString("%1 Database").arg(name));
 }
@@ -235,7 +242,7 @@ void TestKeys::benchmarkTransformKey()
 
     QBENCHMARK
     {
-        Q_UNUSED(compositeKey->transform(kdf, result));
+        Q_UNUSED(!compositeKey->transform(kdf, result));
     };
 }
 

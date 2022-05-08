@@ -18,14 +18,14 @@
  */
 
 #include "TestYkChallengeResponseKey.h"
-#include "TestGlobal.h"
 
 #include "core/Tools.h"
 #include "crypto/Crypto.h"
-#include "keys/YkChallengeResponseKey.h"
+#include "keys/ChallengeResponseKey.h"
 
-#include <QScopedPointer>
+#include <QCryptographicHash>
 #include <QSignalSpy>
+#include <QTest>
 
 QTEST_GUILESS_MAIN(TestYubiKeyChallengeResponse)
 
@@ -43,14 +43,10 @@ void TestYubiKeyChallengeResponse::testDetectDevices()
 {
     YubiKey::instance()->findValidKeys();
 
-    // Wait for the hardware to respond
-    QSignalSpy detected(YubiKey::instance(), SIGNAL(detectComplete(bool)));
-    QTRY_VERIFY_WITH_TIMEOUT(detected.count() > 0, 2000);
-
     // Look at the information retrieved from the key(s)
     for (auto key : YubiKey::instance()->foundKeys()) {
         auto displayName = YubiKey::instance()->getDisplayName(key);
-        QVERIFY(displayName.contains("Challenge Response - Slot") || displayName.contains("Configured Slot -"));
+        QVERIFY(displayName.contains("Challenge-Response - Slot") || displayName.contains("Configured Slot -"));
         QVERIFY(displayName.contains(QString::number(key.first)));
         QVERIFY(displayName.contains(QString::number(key.second)));
     }
@@ -84,9 +80,11 @@ void TestYubiKeyChallengeResponse::testKeyChallenge()
         QSKIP("No YubiKey contains a slot in passive mode.");
     }
 
-    QScopedPointer<YkChallengeResponseKey> key(new YkChallengeResponseKey(pKey));
+    QScopedPointer<ChallengeResponseKey> key(new ChallengeResponseKey(pKey));
 
     QByteArray ba("UnitTest");
     QVERIFY(key->challenge(ba));
     QCOMPARE(key->rawKey().size(), 20);
+    auto hash = QString(QCryptographicHash::hash(key->rawKey(), QCryptographicHash::Sha256).toHex());
+    QCOMPARE(hash, QString("2f7802c7112c301303526e7737b54d546c905076dca6e9538edf761a2264cd70"));
 }

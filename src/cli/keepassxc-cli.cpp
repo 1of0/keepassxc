@@ -15,20 +15,12 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <cstdlib>
-#include <memory>
-
 #include <QCommandLineParser>
-#include <QCoreApplication>
-#include <QDir>
-#include <QScopedPointer>
-#include <QStringList>
+#include <QFileInfo>
 
-#include "cli/TextStream.h"
-#include <cli/Command.h>
-
-#include "DatabaseCommand.h"
+#include "Command.h"
 #include "Open.h"
+#include "TextStream.h"
 #include "Utils.h"
 #include "config-keepassx.h"
 #include "core/Bootstrap.h"
@@ -117,7 +109,7 @@ private:
 };
 #endif
 
-void enterInteractiveMode(const QStringList& arguments)
+int enterInteractiveMode(const QStringList& arguments)
 {
     auto& err = Utils::STDERR;
     // Replace command list with interactive version
@@ -126,7 +118,9 @@ void enterInteractiveMode(const QStringList& arguments)
     Open openCmd;
     QStringList openArgs(arguments);
     openArgs.removeFirst();
-    openCmd.execute(openArgs);
+    if (openCmd.execute(openArgs) != EXIT_SUCCESS) {
+        return EXIT_FAILURE;
+    };
 
     QScopedPointer<LineReader> reader;
 #if defined(USE_READLINE)
@@ -165,21 +159,22 @@ void enterInteractiveMode(const QStringList& arguments)
             break;
         }
 
-        cmd->currentDatabase = currentDatabase;
+        cmd->currentDatabase.swap(currentDatabase);
         cmd->execute(args);
-        currentDatabase = cmd->currentDatabase;
-        cmd->currentDatabase.reset();
+        currentDatabase.swap(cmd->currentDatabase);
     }
 
     if (currentDatabase) {
         currentDatabase->releaseData();
     }
+
+    return EXIT_SUCCESS;
 }
 
 int main(int argc, char** argv)
 {
     if (!Crypto::init()) {
-        qFatal("Fatal error while testing the cryptographic functions:\n%s", qPrintable(Crypto::errorString()));
+        qWarning("Fatal error while testing the cryptographic functions:\n%s", qPrintable(Crypto::errorString()));
         return EXIT_FAILURE;
     }
 
@@ -233,8 +228,7 @@ int main(int argc, char** argv)
 
     QString commandName = parser.positionalArguments().at(0);
     if (commandName == "open") {
-        enterInteractiveMode(arguments);
-        return EXIT_SUCCESS;
+        return enterInteractiveMode(arguments);
     }
 
     auto command = Commands::getCommand(commandName);

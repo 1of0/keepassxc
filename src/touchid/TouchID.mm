@@ -57,28 +57,26 @@ bool TouchID::storeKey(const QString& databasePath, const QByteArray& passwordKe
     }
 
     // generate random AES 256bit key and IV
-    Random* random = randomGen();
-    QByteArray randomKey = random->randomArray(32);
-    QByteArray randomIV = random->randomArray(16);
+    QByteArray randomKey = randomGen()->randomArray(SymmetricCipher::keySize(SymmetricCipher::Aes256_GCM));
+    QByteArray randomIV = randomGen()->randomArray(SymmetricCipher::defaultIvSize(SymmetricCipher::Aes256_GCM));
 
-    bool ok;
-    SymmetricCipher aes256Encrypt(SymmetricCipher::Aes256, SymmetricCipher::Cbc, SymmetricCipher::Encrypt);
-
-    if (!aes256Encrypt.init(randomKey, randomIV)) {
+    SymmetricCipher aes256Encrypt;
+    if (!aes256Encrypt.init(SymmetricCipher::Aes256_GCM, SymmetricCipher::Encrypt, randomKey, randomIV)) {
         debug("TouchID::storeKey - Error initializing encryption: %s",
               aes256Encrypt.errorString().toUtf8().constData());
         return false;
     }
 
     // encrypt and keep result in memory
-    QByteArray encryptedMasterKey = aes256Encrypt.process(passwordKey, &ok);
-    if (!ok) {
+    QByteArray encryptedMasterKey = passwordKey;
+    if (!aes256Encrypt.finish(encryptedMasterKey)) {
         debug("TouchID::storeKey - Error encrypting: %s", aes256Encrypt.errorString().toUtf8().constData());
+        debug(aes256Encrypt.errorString().toUtf8().constData());
         return false;
     }
 
     // memorize which database the stored key is for
-    this->m_encryptedMasterKeys.insert(databasePath, encryptedMasterKey);
+    m_encryptedMasterKeys.insert(databasePath, encryptedMasterKey);
 
     NSString* accountName = (SECURITY_ACCOUNT_PREFIX + hash(databasePath)).toNSString(); // autoreleased
 
@@ -97,10 +95,26 @@ bool TouchID::storeKey(const QString& databasePath, const QByteArray& passwordKe
 
     // prepare adding secure entry to the macOS KeyChain
     CFErrorRef error = NULL;
-    SecAccessControlRef sacObject = SecAccessControlCreateWithFlags(kCFAllocatorDefault,
-                                                                    kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-                                                                    kSecAccessControlTouchIDCurrentSet, // depr: kSecAccessControlBiometryCurrentSet,
-                                                                    &error);
+    SecAccessControlRef sacObject;
+#if __clang_major__ >= 9 && MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
+    if (@available(macOS 10.15, *)) {
+        // kSecAccessControlWatch is only available for macOS 10.15 and later
+        sacObject = SecAccessControlCreateWithFlags(kCFAllocatorDefault,
+                                                    kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+                                                    kSecAccessControlOr | kSecAccessControlBiometryCurrentSet | kSecAccessControlWatch,
+                                                    &error);
+    } else {
+#endif
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101201
+        sacObject = SecAccessControlCreateWithFlags(kCFAllocatorDefault,
+                                                    kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+                                                    kSecAccessControlTouchIDCurrentSet, // depr: kSecAccessControlBiometryCurrentSet,
+                                                    &error);
+#endif
+#if __clang_major__ >= 9 && MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
+    }
+#endif
+
 
     if (sacObject == NULL || error != NULL) {
         NSError* e = (__bridge NSError*) error;
@@ -145,18 +159,19 @@ bool TouchID::storeKey(const QString& databasePath, const QByteArray& passwordKe
  * Checks if an encrypted PasswordKey is available for the given database, tries to
  * decrypt it using the KeyChain and if successful, returns it.
  */
-QSharedPointer <QByteArray> TouchID::getKey(const QString& databasePath) const
+bool TouchID::getKey(const QString& databasePath, QByteArray& passwordKey) const
 {
+    passwordKey.clear();
     if (databasePath.isEmpty()) {
         // illegal arguments
         debug("TouchID::storeKey - Illegal argument: databasePath = %s", databasePath.toUtf8().constData());
-        return NULL;
+        return false;
     }
 
     // checks if encrypted PasswordKey is available and is stored for the given database
-    if (!this->m_encryptedMasterKeys.contains(databasePath)) {
+    if (!containsKey(databasePath)) {
         debug("TouchID::getKey - No stored key found");
-        return NULL;
+        return false;
     }
 
     // query the KeyChain for the AES key
@@ -179,12 +194,12 @@ QSharedPointer <QByteArray> TouchID::getKey(const QString& databasePath) const
     CFRelease(query);
 
     if (status == errSecUserCanceled) {
-        // user canceled the authentication, need special return value
+        // user canceled the authentication, return true with empty key
         debug("TouchID::getKey - User canceled authentication");
-        return QSharedPointer<QByteArray>::create();
+        return true;
     } else if (status != errSecSuccess || dataTypeRef == NULL) {
         debug("TouchID::getKey - Error retrieving result: %d", status);
-        return NULL;
+        return false;
     }
 
     CFDataRef valueData = static_cast<CFDataRef>(dataTypeRef);
@@ -193,25 +208,29 @@ QSharedPointer <QByteArray> TouchID::getKey(const QString& databasePath) const
     CFRelease(valueData);
 
     // extract AES key and IV from data bytes
-    QByteArray key = dataBytes.left(32);
-    QByteArray iv = dataBytes.right(16);
+    QByteArray key = dataBytes.left(SymmetricCipher::keySize(SymmetricCipher::Aes256_GCM));
+    QByteArray iv = dataBytes.right(SymmetricCipher::defaultIvSize(SymmetricCipher::Aes256_GCM));
 
-    bool ok;
-    SymmetricCipher aes256Decrypt(SymmetricCipher::Aes256, SymmetricCipher::Cbc, SymmetricCipher::Decrypt);
-
-    if (!aes256Decrypt.init(key, iv)) {
+    SymmetricCipher aes256Decrypt;
+    if (!aes256Decrypt.init(SymmetricCipher::Aes256_GCM, SymmetricCipher::Decrypt, key, iv)) {
         debug("TouchID::getKey - Error initializing decryption: %s", aes256Decrypt.errorString().toUtf8().constData());
-        return NULL;
+        return false;
     }
 
     // decrypt PasswordKey from memory using AES
-    QByteArray result = aes256Decrypt.process(this->m_encryptedMasterKeys[databasePath], &ok);
-    if (!ok) {
+    passwordKey = m_encryptedMasterKeys[databasePath];
+    if (!aes256Decrypt.finish(passwordKey)) {
+        passwordKey.clear();
         debug("TouchID::getKey - Error decryption: %s", aes256Decrypt.errorString().toUtf8().constData());
-        return NULL;
+        return false;
     }
 
-    return QSharedPointer<QByteArray>::create(result);
+    return true;
+}
+
+bool TouchID::containsKey(const QString& dbPath) const
+{
+    return m_encryptedMasterKeys.contains(dbPath);
 }
 
 /**
@@ -219,13 +238,29 @@ QSharedPointer <QByteArray> TouchID::getKey(const QString& databasePath) const
  */
 bool TouchID::isAvailable()
 {
+#if MAC_OS_X_VERSION_MIN_REQUIRED < 101201
+	return false;
+#else
     // cache result
-    if (this->m_available != TOUCHID_UNDEFINED)
+    if (this->m_available != TOUCHID_UNDEFINED) {
         return (this->m_available == TOUCHID_AVAILABLE);
+    }
 
     @try {
         LAContext* context = [[LAContext alloc] init];
-        bool canAuthenticate = [context canEvaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics error:nil];
+
+        LAPolicy policyCode;
+#if __clang_major__ >= 9 && MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
+        if (@available(macOS 10.15, *)) {
+            policyCode = LAPolicyDeviceOwnerAuthenticationWithBiometricsOrWatch;
+        } else {
+#endif
+            policyCode = LAPolicyDeviceOwnerAuthenticationWithBiometrics;
+#if __clang_major__ >= 9 && MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
+        }
+#endif
+
+        bool canAuthenticate = [context canEvaluatePolicy:policyCode error:nil];
         [context release];
         this->m_available = canAuthenticate ? TOUCHID_AVAILABLE : TOUCHID_NOT_AVAILABLE;
         return canAuthenticate;
@@ -234,6 +269,7 @@ bool TouchID::isAvailable()
         this->m_available = TOUCHID_NOT_AVAILABLE;
         return false;
     }
+#endif
 }
 
 typedef enum
@@ -257,7 +293,21 @@ bool TouchID::authenticate(const QString& message) const
         LAContext* context = [[LAContext alloc] init];
         __block TouchIDResult result = kTouchIDResultNone;
         NSString* authMessage = msg.toNSString(); // autoreleased
-        [context evaluatePolicy:LAPolicyDeviceOwnerAuthenticationWithBiometrics
+
+        LAPolicy policyCode;
+#if __clang_major__ >= 9 && MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
+        if (@available(macOS 10.15, *)) {
+            policyCode = LAPolicyDeviceOwnerAuthenticationWithBiometricsOrWatch;
+        } else {
+#endif
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101201
+            policyCode = LAPolicyDeviceOwnerAuthenticationWithBiometrics;
+#endif
+#if __clang_major__ >= 9 && MAC_OS_X_VERSION_MIN_REQUIRED >= 101500
+        }
+#endif
+
+        [context evaluatePolicy:policyCode
                 localizedReason:authMessage reply:^(BOOL success, NSError* error) {
                 Q_UNUSED(error);
                 result = success ? kTouchIDResultAllowed : kTouchIDResultFailed;

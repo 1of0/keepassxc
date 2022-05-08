@@ -21,10 +21,10 @@
 #define KEEPASSXC_FDOSECRETS_ACCESSCONTROLDIALOG_H
 
 #include <QAbstractTableModel>
+#include <QCheckBox>
 #include <QDialog>
 #include <QPointer>
 #include <QPushButton>
-#include <QScopedPointer>
 #include <QSet>
 
 #include "core/Global.h"
@@ -34,6 +34,11 @@ class Entry;
 namespace Ui
 {
     class AccessControlDialog;
+}
+
+namespace FdoSecrets
+{
+    struct PeerInfo;
 }
 
 enum class AuthOption
@@ -53,6 +58,7 @@ public:
     explicit AccessControlDialog(QWindow* parent,
                                  const QList<Entry*>& entries,
                                  const QString& app,
+                                 const FdoSecrets::PeerInfo& info,
                                  AuthOptions authOptions = AuthOption::Remember | AuthOption::PerEntryDeny);
     ~AccessControlDialog() override;
 
@@ -60,16 +66,16 @@ public:
     {
         Rejected,
         AllowSelected,
+        AllowAll,
         DenyAll,
     };
 
     QHash<Entry*, AuthDecision> decisions() const;
 
 signals:
-    void finished(const QHash<Entry*, AuthDecision>& results);
+    void finished(const QHash<Entry*, AuthDecision>& results, AuthDecision forFutureEntries);
 
 private slots:
-    void rememberChecked(bool checked);
     void denyEntryClicked(Entry* entry, const QModelIndex& index);
     void dialogFinished(int result);
 
@@ -77,7 +83,10 @@ private:
     class EntryModel;
     class DenyButton;
 
+    void setupDetails(const FdoSecrets::PeerInfo& info);
+
     QScopedPointer<Ui::AccessControlDialog> m_ui;
+    QPointer<QCheckBox> m_rememberCheck;
     QScopedPointer<EntryModel> m_model;
     QHash<Entry*, AuthDecision> m_decisions;
 };

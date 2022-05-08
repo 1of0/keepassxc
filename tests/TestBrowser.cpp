@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2019 KeePassXC Team <team@keepassxc.org>
+ *  Copyright (C) 2021 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -17,13 +17,18 @@
 
 #include "TestBrowser.h"
 
-#include "TestGlobal.h"
+#include "browser/BrowserMessageBuilder.h"
 #include "browser/BrowserSettings.h"
+#include "core/Group.h"
 #include "core/Tools.h"
 #include "crypto/Crypto.h"
-#include "sodium/crypto_box.h"
 
-#include <QString>
+#include <QJsonObject>
+#include <QTest>
+
+#include <botan/sodium.h>
+
+using namespace Botan::Sodium;
 
 QTEST_GUILESS_MAIN(TestBrowser)
 
@@ -57,7 +62,7 @@ void TestBrowser::testChangePublicKeys()
     json["publicKey"] = PUBLICKEY;
     json["nonce"] = NONCE;
 
-    auto response = m_browserAction->processClientMessage(json);
+    auto response = m_browserAction->processClientMessage(nullptr, json);
     QCOMPARE(response["action"].toString(), QString("change-public-keys"));
     QCOMPARE(response["publicKey"].toString() == PUBLICKEY, false);
     QCOMPARE(response["success"].toString(), TRUE_STR);
@@ -71,7 +76,7 @@ void TestBrowser::testEncryptMessage()
     m_browserAction->m_publicKey = SERVERPUBLICKEY;
     m_browserAction->m_secretKey = SERVERSECRETKEY;
     m_browserAction->m_clientPublicKey = PUBLICKEY;
-    auto encrypted = m_browserAction->encryptMessage(message, NONCE);
+    auto encrypted = browserMessageBuilder()->encryptMessage(message, NONCE, PUBLICKEY, SERVERSECRETKEY);
 
     QCOMPARE(encrypted, QString("+zjtntnk4rGWSl/Ph7Vqip/swvgeupk4lNgHEm2OO3ujNr0OMz6eQtGwjtsj+/rP"));
 }
@@ -82,7 +87,7 @@ void TestBrowser::testDecryptMessage()
     m_browserAction->m_publicKey = SERVERPUBLICKEY;
     m_browserAction->m_secretKey = SERVERSECRETKEY;
     m_browserAction->m_clientPublicKey = PUBLICKEY;
-    auto decrypted = m_browserAction->decryptMessage(message, NONCE);
+    auto decrypted = browserMessageBuilder()->decryptMessage(message, NONCE, PUBLICKEY, SERVERSECRETKEY);
 
     QCOMPARE(decrypted["action"].toString(), QString("test-action"));
 }
@@ -95,35 +100,62 @@ void TestBrowser::testGetBase64FromKey()
         pk[i] = i;
     }
 
-    auto response = m_browserAction->getBase64FromKey(pk, crypto_box_PUBLICKEYBYTES);
+    auto response = browserMessageBuilder()->getBase64FromKey(pk, crypto_box_PUBLICKEYBYTES);
     QCOMPARE(response, QString("AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="));
 }
 
 void TestBrowser::testIncrementNonce()
 {
-    auto result = m_browserAction->incrementNonce(NONCE);
+    auto result = browserMessageBuilder()->incrementNonce(NONCE);
     QCOMPARE(result, QString("zRKdvTjL5bgWaKMCTut/8soM/uoMrFoZ"));
 }
 
 /**
  * Tests for BrowserService
  */
-void TestBrowser::testBaseDomain()
+void TestBrowser::testTopLevelDomain()
 {
     QString url1 = "https://another.example.co.uk";
     QString url2 = "https://www.example.com";
     QString url3 = "http://test.net";
     QString url4 = "http://so.many.subdomains.co.jp";
+    QString url5 = "https://192.168.0.1";
+    QString url6 = "https://192.168.0.1:8000";
 
-    QString res1 = m_browserService->baseDomain(url1);
-    QString res2 = m_browserService->baseDomain(url2);
-    QString res3 = m_browserService->baseDomain(url3);
-    QString res4 = m_browserService->baseDomain(url4);
+    QString res1 = m_browserService->getTopLevelDomainFromUrl(url1);
+    QString res2 = m_browserService->getTopLevelDomainFromUrl(url2);
+    QString res3 = m_browserService->getTopLevelDomainFromUrl(url3);
+    QString res4 = m_browserService->getTopLevelDomainFromUrl(url4);
+    QString res5 = m_browserService->getTopLevelDomainFromUrl(url5);
+    QString res6 = m_browserService->getTopLevelDomainFromUrl(url6);
 
     QCOMPARE(res1, QString("example.co.uk"));
     QCOMPARE(res2, QString("example.com"));
     QCOMPARE(res3, QString("test.net"));
     QCOMPARE(res4, QString("subdomains.co.jp"));
+    QCOMPARE(res5, QString("192.168.0.1"));
+    QCOMPARE(res6, QString("192.168.0.1"));
+}
+
+void TestBrowser::testIsIpAddress()
+{
+    auto host1 = "example.com"; // Not valid
+    auto host2 = "192.168.0.1";
+    auto host3 = "278.21.2.0"; // Not valid
+    auto host4 = "2001:0db8:85a3:0000:0000:8a2e:0370:7334";
+    auto host5 = "2001:db8:0:1:1:1:1:1";
+    auto host6 = "fe80::1ff:fe23:4567:890a";
+    auto host7 = "2001:20::1";
+    auto host8 = "2001:0db8:85y3:0000:0000:8a2e:0370:7334"; // Not valid
+
+    QVERIFY(!m_browserService->isIpAddress(host1));
+    QVERIFY(m_browserService->isIpAddress(host2));
+    QVERIFY(!m_browserService->isIpAddress(host3));
+    QVERIFY(m_browserService->isIpAddress(host4));
+    QVERIFY(m_browserService->isIpAddress(host5));
+    QVERIFY(m_browserService->isIpAddress(host6));
+    QVERIFY(m_browserService->isIpAddress(host7));
+    QVERIFY(!m_browserService->isIpAddress(host8));
 }
 
 void TestBrowser::testSortPriority()
@@ -161,10 +193,13 @@ void TestBrowser::testSortPriority_data()
 
     QTest::newRow("Site Query Mismatch") << siteUrl << siteUrl + "?test=test" << formUrl << 90;
 
-    QTest::newRow("Path Mismatch (site)") << "https://github.com/" << siteUrl << formUrl << 80;
-    QTest::newRow("Path Mismatch (site) No Scheme") << "github.com" << siteUrl << formUrl << 80;
+    QTest::newRow("Path Mismatch (site)") << "https://github.com/" << siteUrl << formUrl << 85;
+    QTest::newRow("Path Mismatch (site) No Scheme") << "github.com" << siteUrl << formUrl << 85;
     QTest::newRow("Path Mismatch (form)") << "https://github.com/"
-                                          << "https://github.net" << formUrl << 70;
+                                          << "https://github.net" << formUrl << 85;
+    QTest::newRow("Path Mismatch (diff parent)") << "https://github.com/keepassxreboot" << siteUrl << formUrl << 80;
+    QTest::newRow("Path Mismatch (diff parent, form)") << "https://github.com/keepassxreboot"
+                                                       << "https://github.net" << formUrl << 70;
 
     QTest::newRow("Subdomain Mismatch (site)") << siteUrl << "https://sub.github.com/"
                                                << "https://github.net/" << 60;
@@ -448,46 +483,6 @@ void TestBrowser::testSubdomainsAndPaths()
     QCOMPARE(result.length(), 1);
 }
 
-void TestBrowser::testSortEntries()
-{
-    auto db = QSharedPointer<Database>::create();
-    auto* root = db->rootGroup();
-
-    QStringList urls = {"https://github.com/login_page",
-                        "https://github.com/login",
-                        "https://github.com/",
-                        "github.com/login",
-                        "http://github.com",
-                        "http://github.com/login",
-                        "github.com",
-                        "github.com/login?test=test",
-                        "https://github", // Invalid URL
-                        "github.com"};
-
-    auto entries = createEntries(urls, root);
-
-    browserSettings()->setBestMatchOnly(false);
-    browserSettings()->setSortByUsername(true);
-    auto result = m_browserService->sortEntries(entries, "https://github.com/login", "https://github.com/session");
-    QCOMPARE(result.size(), 10);
-    QCOMPARE(result[0]->username(), QString("User 1"));
-    QCOMPARE(result[0]->url(), urls[1]);
-    QCOMPARE(result[1]->username(), QString("User 3"));
-    QCOMPARE(result[1]->url(), urls[3]);
-    QCOMPARE(result[2]->username(), QString("User 7"));
-    QCOMPARE(result[2]->url(), urls[7]);
-    QCOMPARE(result[3]->username(), QString("User 0"));
-    QCOMPARE(result[3]->url(), urls[0]);
-
-    // Test with a perfect match. That should be first in the list.
-    result = m_browserService->sortEntries(entries, "https://github.com/login_page", "https://github.com/session");
-    QCOMPARE(result.size(), 10);
-    QCOMPARE(result[0]->username(), QString("User 0"));
-    QCOMPARE(result[0]->url(), QString("https://github.com/login_page"));
-    QCOMPARE(result[1]->username(), QString("User 1"));
-    QCOMPARE(result[1]->url(), QString("https://github.com/login"));
-}
-
 QList<Entry*> TestBrowser::createEntries(QStringList& urls, Group* root) const
 {
     QList<Entry*> entries;
@@ -598,8 +593,8 @@ void TestBrowser::testBestMatchingCredentials()
     result = m_browserService->searchEntries(db, siteUrl, siteUrl);
     sorted = m_browserService->sortEntries(result, siteUrl, siteUrl);
     QCOMPARE(sorted.size(), 2);
-    QCOMPARE(sorted[0]->url(), QString("https://subdomain.example.com/"));
-    QCOMPARE(sorted[1]->url(), QString("https://subdomain.example.com"));
+    QCOMPARE(sorted[0]->url(), QString("https://subdomain.example.com"));
+    QCOMPARE(sorted[1]->url(), QString("https://subdomain.example.com/"));
 
     // Entries with https://example.com should be still returned even if the site URL has a subdomain. Those have the
     // best match.

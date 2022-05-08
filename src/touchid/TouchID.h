@@ -5,10 +5,7 @@
 #define TOUCHID_AVAILABLE 1
 #define TOUCHID_NOT_AVAILABLE 0
 
-#include <QByteArray>
 #include <QHash>
-#include <QSharedPointer>
-#include <QString>
 
 class TouchID
 {
@@ -33,7 +30,9 @@ public:
 
     bool storeKey(const QString& databasePath, const QByteArray& passwordKey);
 
-    QSharedPointer<QByteArray> getKey(const QString& databasePath) const;
+    bool getKey(const QString& databasePath, QByteArray& passwordKey) const;
+
+    bool containsKey(const QString& databasePath) const;
 
     bool isAvailable();
 

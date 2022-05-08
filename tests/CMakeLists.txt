@@ -94,8 +94,7 @@ set(testsupport_SOURCES
         modeltest.cpp
         FailDevice.cpp
         mock/MockClock.cpp
-        util/TemporaryFile.cpp
-        stub/TestRandom.cpp)
+        util/TemporaryFile.cpp)
 add_library(testsupport STATIC ${testsupport_SOURCES})
 target_link_libraries(testsupport Qt5::Core Qt5::Concurrent Qt5::Widgets Qt5::Test)
 
@@ -125,11 +124,6 @@ add_unit_test(NAME testcryptohash SOURCES TestCryptoHash.cpp
 
 add_unit_test(NAME testsymmetriccipher SOURCES TestSymmetricCipher.cpp
         LIBS ${TEST_LIBRARIES})
-
-if(WITH_XC_KEESHARE)
-    add_unit_test(NAME testsignature SOURCES TestSignature.cpp
-            LIBS ${TEST_LIBRARIES})
-endif()
 
 add_unit_test(NAME testhashedblockstream SOURCES TestHashedBlockStream.cpp
         LIBS testsupport ${TEST_LIBRARIES})
@@ -166,9 +160,9 @@ if(WITH_XC_AUTOTYPE)
     set_target_properties(testautotypeext PROPERTIES ENABLE_EXPORTS ON)
 endif()
 
-if(WITH_XC_CRYPTO_SSH)
+if(WITH_XC_SSHAGENT)
     add_unit_test(NAME testopensshkey SOURCES TestOpenSSHKey.cpp
-            LIBS ${TEST_LIBRARIES})
+            LIBS sshagent ${TEST_LIBRARIES})
     if(NOT WIN32)
         add_unit_test(NAME testsshagent SOURCES TestSSHAgent.cpp
                 LIBS ${TEST_LIBRARIES})
@@ -241,11 +235,9 @@ if(WITH_XC_BROWSER)
         LIBS ${TEST_LIBRARIES})
 endif()
 
+add_unit_test(NAME testcli SOURCES TestCli.cpp
+        LIBS testsupport cli ${TEST_LIBRARIES})
 
 if(WITH_GUI_TESTS)
-    # CLI clip tests need X environment on Linux
-    add_unit_test(NAME testcli SOURCES TestCli.cpp
-            LIBS testsupport cli ${TEST_LIBRARIES})
-
     add_subdirectory(gui)
 endif(WITH_GUI_TESTS)

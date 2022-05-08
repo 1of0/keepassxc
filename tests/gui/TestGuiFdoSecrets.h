@@ -21,12 +21,9 @@
 #include <QByteArray>
 #include <QDBusConnection>
 #include <QPointer>
-#include <QScopedPointer>
-#include <QSharedPointer>
-#include <QString>
 
-#include "fdosecrets/GcryptMPI.h"
 #include "fdosecrets/dbus/DBusTypes.h"
+#include "gui/MessageBox.h"
 
 class MainWindow;
 class Database;
@@ -51,6 +48,7 @@ class SessionProxy;
 class PromptProxy;
 
 class QAbstractItemView;
+class QSignalSpy;
 
 class TestGuiFdoSecrets : public QObject
 {
@@ -68,15 +66,21 @@ private slots:
     void testServiceEnable();
     void testServiceEnableNoExposedDatabase();
     void testServiceSearch();
+    void testServiceSearchBlockingUnlock();
+    void testServiceSearchForce();
     void testServiceUnlock();
+    void testServiceUnlockDatabaseConcurrent();
     void testServiceUnlockItems();
+    void testServiceUnlockItemsIncludeFutureEntries();
     void testServiceLock();
+    void testServiceLockConcurrent();
 
     void testSessionOpen();
     void testSessionClose();
 
     void testCollectionCreate();
     void testCollectionDelete();
+    void testCollectionDeleteConcurrent();
     void testCollectionChange();
 
     void testItemCreate();
@@ -86,6 +90,7 @@ private slots:
     void testItemSecret();
     void testItemDelete();
     void testItemLockState();
+    void testItemRejectSetReferenceFields();
 
     void testAlias();
     void testDefaultAliasAlwaysPresent();
@@ -96,11 +101,14 @@ private slots:
     void testHiddenFilename();
     void testDuplicateName();
 
-protected slots:
-    void driveNewDatabaseWizard();
-    bool driveAccessControlDialog(bool remember = true);
-
 private:
+    bool driveUnlockDialog();
+    bool driveNewDatabaseWizard();
+    bool driveAccessControlDialog(bool remember = true, bool includeFutureEntries = false);
+    bool waitForSignal(QSignalSpy& spy, int expectedCount);
+
+    void processEvents();
+
     void lockDatabaseInBackend();
     void unlockDatabaseInBackend();
     QSharedPointer<ServiceProxy> enableService();
@@ -114,6 +122,8 @@ private:
                                          const FdoSecrets::wire::StringStringMap& attr,
                                          bool replace,
                                          bool expectPrompt = false);
+    FdoSecrets::wire::Secret
+    encryptPassword(QByteArray value, QString contentType, const QSharedPointer<SessionProxy>& sess);
     template <typename Proxy> QSharedPointer<Proxy> getProxy(const QDBusObjectPath& path) const
     {
         auto ret = QSharedPointer<Proxy>{
@@ -139,10 +149,7 @@ private:
     QPointer<FdoSecretsPlugin> m_plugin;
     QSharedPointer<FdoSecrets::DBusClient> m_client;
 
-    // For DH session tests
-    GcryptMPI m_serverPrivate;
-    GcryptMPI m_serverPublic;
-    std::unique_ptr<FdoSecrets::DhIetf1024Sha256Aes128CbcPkcs7> m_cipher;
+    QScopedPointer<FdoSecrets::DhIetf1024Sha256Aes128CbcPkcs7> m_clientCipher;
 
     QByteArray m_dbData;
     QScopedPointer<TemporaryFile> m_dbFile;

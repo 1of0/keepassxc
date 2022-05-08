@@ -19,10 +19,6 @@
 #define KEEPASSXC_TESTCLI_H
 
 #include <QBuffer>
-#include <QScopedPointer>
-#include <QSharedPointer>
-#include <QStringList>
-#include <QTest>
 
 #include "util/TemporaryFile.h"
 
@@ -51,6 +47,9 @@ private slots:
     void testAdd();
     void testAddGroup();
     void testAnalyze();
+    void testAttachmentExport();
+    void testAttachmentImport();
+    void testAttachmentRemove();
     void testClip();
     void testCommandParsing_data();
     void testCommandParsing();
@@ -69,7 +68,6 @@ private slots:
     void testHelp();
     void testInteractiveCommands();
     void testList();
-    void testLocate();
     void testMerge();
     void testMergeWithKeys();
     void testMove();
@@ -77,6 +75,7 @@ private slots:
     void testRemove();
     void testRemoveGroup();
     void testRemoveQuiet();
+    void testSearch();
     void testShow();
     void testInvalidDbFiles();
     void testYubiKeyOption();

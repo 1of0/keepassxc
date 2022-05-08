@@ -28,7 +28,7 @@
 #include <QStandardPaths>
 #include <QTemporaryFile>
 
-#define CONFIG_VERSION 1
+#define CONFIG_VERSION 2
 #define QS QStringLiteral
 
 enum ConfigType
@@ -61,7 +61,9 @@ static const QHash<Config::ConfigKey, ConfigDirective> configStrings = {
     {Config::AutoSaveOnExit,{QS("AutoSaveOnExit"), Roaming, true}},
     {Config::AutoSaveNonDataChanges,{QS("AutoSaveNonDataChanges"), Roaming, true}},
     {Config::BackupBeforeSave,{QS("BackupBeforeSave"), Roaming, false}},
+    {Config::BackupFilePathPattern,{QS("BackupFilePathPattern"), Roaming, QString("{DB_FILENAME}.old.kdbx")}},
     {Config::UseAtomicSaves,{QS("UseAtomicSaves"), Roaming, true}},
+    {Config::UseDirectWriteSaves,{QS("UseDirectWriteSaves"), Local, false}},
     {Config::SearchLimitGroup,{QS("SearchLimitGroup"), Roaming, false}},
     {Config::MinimizeOnOpenUrl,{QS("MinimizeOnOpenUrl"), Roaming, false}},
     {Config::HideWindowOnCopy,{QS("HideWindowOnCopy"), Roaming, false}},
@@ -76,11 +78,11 @@ static const QHash<Config::ConfigKey, ConfigDirective> configStrings = {
     {Config::AutoTypeHideExpiredEntry,{QS("AutoTypeHideExpiredEntry"), Roaming, false}},
     {Config::GlobalAutoTypeKey,{QS("GlobalAutoTypeKey"), Roaming, 0}},
     {Config::GlobalAutoTypeModifiers,{QS("GlobalAutoTypeModifiers"), Roaming, 0}},
+    {Config::GlobalAutoTypeRetypeTime,{QS("GlobalAutoTypeRetypeTime"), Roaming, 15}},
     {Config::AutoTypeLibvirtDeadKeysWindows,{QS("AutoTypeLibvirtDeadKeysWindows"), Roaming, true}},
     {Config::AutoTypeLibvirtDeadKeysOther,{QS("AutoTypeLibvirtDeadKeysWindows"), Roaming, false}},
     {Config::FaviconDownloadTimeout,{QS("FaviconDownloadTimeout"), Roaming, 10}},
     {Config::UpdateCheckMessageShown,{QS("UpdateCheckMessageShown"), Roaming, false}},
-    {Config::UseTouchID,{QS("UseTouchID"), Roaming, false}},
 
     {Config::LastDatabases, {QS("LastDatabases"), Local, {}}},
     {Config::LastKeyFiles, {QS("LastKeyFiles"), Local, {}}},
@@ -88,15 +90,13 @@ static const QHash<Config::ConfigKey, ConfigDirective> configStrings = {
     {Config::LastActiveDatabase, {QS("LastActiveDatabase"), Local, {}}},
     {Config::LastOpenedDatabases, {QS("LastOpenedDatabases"), Local, {}}},
     {Config::LastDir, {QS("LastDir"), Local, QDir::homePath()}},
-    {Config::LastAttachmentDir, {QS("LastAttachmentDir"), Local, {}}},
 
     // GUI
     {Config::GUI_Language, {QS("GUI/Language"), Roaming, QS("system")}},
     {Config::GUI_HideToolbar, {QS("GUI/HideToolbar"), Roaming, false}},
     {Config::GUI_MovableToolbar, {QS("GUI/MovableToolbar"), Roaming, false}},
-    {Config::GUI_HideGroupsPanel, {QS("GUI/HideGroupsPanel"), Roaming, false}},
     {Config::GUI_HidePreviewPanel, {QS("GUI/HidePreviewPanel"), Roaming, false}},
-    {Config::GUI_AlwaysOnTop, {QS("GUI/GUI_AlwaysOnTop"), Roaming, false}},
+    {Config::GUI_AlwaysOnTop, {QS("GUI/GUI_AlwaysOnTop"), Local, false}},
     {Config::GUI_ToolButtonStyle, {QS("GUI/ToolButtonStyle"), Roaming, Qt::ToolButtonIconOnly}},
     {Config::GUI_ShowTrayIcon, {QS("GUI/ShowTrayIcon"), Roaming, false}},
     {Config::GUI_TrayIconAppearance, {QS("GUI/TrayIconAppearance"), Roaming, {}}},
@@ -112,12 +112,15 @@ static const QHash<Config::ConfigKey, ConfigDirective> configStrings = {
     {Config::GUI_CheckForUpdates, {QS("GUI/CheckForUpdates"), Roaming, true}},
     {Config::GUI_CheckForUpdatesNextCheck, {QS("GUI/CheckForUpdatesNextCheck"), Local, 0}},
     {Config::GUI_CheckForUpdatesIncludeBetas, {QS("GUI/CheckForUpdatesIncludeBetas"), Roaming, false}},
+    {Config::GUI_ShowExpiredEntriesOnDatabaseUnlock, {QS("GUI/ShowExpiredEntriesOnDatabaseUnlock"), Roaming, true}},
+    {Config::GUI_ShowExpiredEntriesOnDatabaseUnlockOffsetDays, {QS("GUI/ShowExpiredEntriesOnDatabaseUnlockOffsetDays"), Roaming, 3}},
 
     {Config::GUI_MainWindowGeometry, {QS("GUI/MainWindowGeometry"), Local, {}}},
     {Config::GUI_MainWindowState, {QS("GUI/MainWindowState"), Local, {}}},
     {Config::GUI_ListViewState, {QS("GUI/ListViewState"), Local, {}}},
     {Config::GUI_SearchViewState, {QS("GUI/SearchViewState"), Local, {}}},
     {Config::GUI_SplitterState, {QS("GUI/SplitterState"), Local, {}}},
+    {Config::GUI_GroupSplitterState, {QS("GUI/GroupSplitterState"), Local, {}}},
     {Config::GUI_PreviewSplitterState, {QS("GUI/PreviewSplitterState"), Local, {}}},
     {Config::GUI_AutoTypeSelectDialogSize, {QS("GUI/AutoTypeSelectDialogSize"), Local, QSize(600, 250)}},
 
@@ -138,10 +141,9 @@ static const QHash<Config::ConfigKey, ConfigDirective> configStrings = {
     {Config::Security_HidePasswordPreviewPanel, {QS("Security/HidePasswordPreviewPanel"), Roaming, true}},
     {Config::Security_AutoTypeAsk, {QS("Security/AutotypeAsk"), Roaming, true}},
     {Config::Security_IconDownloadFallback, {QS("Security/IconDownloadFallback"), Roaming, false}},
-    {Config::Security_ResetTouchId, {QS("Security/ResetTouchId"), Roaming, false}},
-    {Config::Security_ResetTouchIdTimeout, {QS("Security/ResetTouchIdTimeout"), Roaming, 30}},
-    {Config::Security_ResetTouchIdScreenlock,{QS("Security/ResetTouchIdScreenlock"), Roaming, true}},
     {Config::Security_NoConfirmMoveEntryToRecycleBin,{QS("Security/NoConfirmMoveEntryToRecycleBin"), Roaming, true}},
+    {Config::Security_EnableCopyOnDoubleClick,{QS("Security/EnableCopyOnDoubleClick"), Roaming, false}},
+    {Config::Security_QuickUnlock, {QS("Security/QuickUnlock"), Local, true}},
 
     // Browser
     {Config::Browser_Enabled, {QS("Browser/Enabled"), Roaming, false}},
@@ -149,7 +151,6 @@ static const QHash<Config::ConfigKey, ConfigDirective> configStrings = {
     {Config::Browser_BestMatchOnly, {QS("Browser/BestMatchOnly"), Roaming, false}},
     {Config::Browser_UnlockDatabase, {QS("Browser/UnlockDatabase"), Roaming, true}},
     {Config::Browser_MatchUrlScheme, {QS("Browser/MatchUrlScheme"), Roaming, true}},
-    {Config::Browser_SortByUsername, {QS("Browser/SortByUsername"), Roaming, false}},
     {Config::Browser_SupportBrowserProxy, {QS("Browser/SupportBrowserProxy"), Roaming, true}},
     {Config::Browser_UseCustomProxy, {QS("Browser/UseCustomProxy"), Roaming, false}},
     {Config::Browser_CustomProxyLocation, {QS("Browser/CustomProxyLocation"), Roaming, {}}},
@@ -171,22 +172,22 @@ static const QHash<Config::ConfigKey, ConfigDirective> configStrings = {
     // SSHAgent
     {Config::SSHAgent_Enabled, {QS("SSHAgent/Enabled"), Roaming, false}},
     {Config::SSHAgent_UseOpenSSH, {QS("SSHAgent/UseOpenSSH"), Roaming, false}},
+    {Config::SSHAgent_UsePageant, {QS("SSHAgent/UsePageant"), Roaming, true} },
     {Config::SSHAgent_AuthSockOverride, {QS("SSHAgent/AuthSockOverride"), Local, {}}},
+    {Config::SSHAgent_SecurityKeyProviderOverride, {QS("SSHAgent/SecurityKeyProviderOverride"), Local, {}}},
 
     // FdoSecrets
     {Config::FdoSecrets_Enabled, {QS("FdoSecrets/Enabled"), Roaming, false}},
     {Config::FdoSecrets_ShowNotification, {QS("FdoSecrets/ShowNotification"), Roaming, true}},
     {Config::FdoSecrets_ConfirmDeleteItem, {QS("FdoSecrets/ConfirmDeleteItem"), Roaming, true}},
     {Config::FdoSecrets_ConfirmAccessItem, {QS("FdoSecrets/ConfirmAccessItem"), Roaming, true}},
+    {Config::FdoSecrets_UnlockBeforeSearch, {QS("FdoSecrets/UnlockBeforeSearch"), Roaming, true}},
 
     // KeeShare
     {Config::KeeShare_QuietSuccess, {QS("KeeShare/QuietSuccess"), Roaming, false}},
     {Config::KeeShare_Own, {QS("KeeShare/Own"), Roaming, {}}},
     {Config::KeeShare_Foreign, {QS("KeeShare/Foreign"), Roaming, {}}},
     {Config::KeeShare_Active, {QS("KeeShare/Active"), Roaming, {}}},
-    {Config::KeeShare_LastDir, {QS("KeeShare/LastDir"), Local, QDir::homePath()}},
-    {Config::KeeShare_LastKeyDir, {QS("KeeShare/LastKeyDir"), Local, QDir::homePath()}},
-    {Config::KeeShare_LastShareDir, {QS("KeeShare/LastShareDir"), Local, QDir::homePath()}},
 
     // PasswordGenerator
     {Config::PasswordGenerator_LowerCase, {QS("PasswordGenerator/LowerCase"), Roaming, true}},
@@ -229,6 +230,11 @@ QVariant Config::get(ConfigKey key)
         return m_localSettings->value(cfg.name, defaultValue);
     }
     return m_settings->value(cfg.name, defaultValue);
+}
+
+QVariant Config::getDefault(Config::ConfigKey key)
+{
+    return configStrings[key].defaultValue;
 }
 
 bool Config::hasAccessError()
@@ -322,9 +328,6 @@ static const QHash<QString, Config::ConfigKey> deprecationMap = {
     {QS("security/HidePasswordPreviewPanel"), Config::Security_HidePasswordPreviewPanel},
     {QS("security/passwordsrepeat"), Config::Security_PasswordsRepeatVisible},
     {QS("security/hidenotes"), Config::Security_HideNotes},
-    {QS("security/resettouchid"), Config::Security_ResetTouchId},
-    {QS("security/resettouchidtimeout"), Config::Security_ResetTouchIdTimeout},
-    {QS("security/resettouchidscreenlock"), Config::Security_ResetTouchIdScreenlock},
     {QS("KeeShare/Settings.own"), Config::KeeShare_Own},
     {QS("KeeShare/Settings.foreign"), Config::KeeShare_Foreign},
     {QS("KeeShare/Settings.active"), Config::KeeShare_Active},
@@ -355,7 +358,18 @@ static const QHash<QString, Config::ConfigKey> deprecationMap = {
     {QS("generator/Type"), Config::PasswordGenerator_Type},
     {QS("QtErrorMessageShown"), Config::Messages_Qt55CompatibilityWarning},
     {QS("GUI/HidePasswords"), Config::Deleted},
-    {QS("GUI/DarkTrayIcon"), Config::Deleted}};
+    {QS("GUI/DarkTrayIcon"), Config::Deleted},
+
+    // 2.7.0
+    {QS("GUI/HideGroupsPanel"), Config::Deleted},
+    {QS("LastAttachmentDir"), Config::Deleted},
+    {QS("KeeShare/LastDir"), Config::Deleted},
+    {QS("KeeShare/LastKeyDir"), Config::Deleted},
+    {QS("KeeShare/LastShareDir"), Config::Deleted},
+    {QS("UseTouchID"), Config::Deleted},
+    {QS("Security/ResetTouchId"), Config::Deleted},
+    {QS("Security/ResetTouchIdTimeout"), Config::Deleted},
+    {QS("Security/ResetTouchIdScreenlock"), Config::Deleted}};
 
 /**
  * Migrate settings from previous versions.

@@ -20,16 +20,15 @@
 #include "SSHAgent.h"
 #include "ui_AgentSettingsWidget.h"
 
-#include "core/Config.h"
-#include <QProcessEnvironment>
-
 AgentSettingsWidget::AgentSettingsWidget(QWidget* parent)
     : QWidget(parent)
     , m_ui(new Ui::AgentSettingsWidget())
 {
     m_ui->setupUi(this);
 #ifndef Q_OS_WIN
-    m_ui->useOpenSSHCheckBox->setVisible(false);
+    m_ui->usePageantRadioButton->setVisible(false);
+    m_ui->useOpenSSHRadioButton->setVisible(false);
+    m_ui->useBothRadioButton->setVisible(false);
 #else
     m_ui->sshAuthSockWidget->setVisible(false);
 #endif
@@ -49,12 +48,20 @@ void AgentSettingsWidget::loadSettings()
 
     m_ui->enableSSHAgentCheckBox->setChecked(sshAgentEnabled);
 #ifdef Q_OS_WIN
-    m_ui->useOpenSSHCheckBox->setChecked(sshAgent()->useOpenSSH());
+    m_ui->usePageantRadioButton->setChecked(sshAgent()->usePageant());
+    m_ui->useOpenSSHRadioButton->setChecked(sshAgent()->useOpenSSH());
+    m_ui->useBothRadioButton->setChecked(sshAgent()->usePageant() && sshAgent()->useOpenSSH());
+    sshAgentEnabled = sshAgentEnabled && (sshAgent()->usePageant() || sshAgent()->useOpenSSH());
 #else
     auto sshAuthSock = sshAgent()->socketPath(false);
     auto sshAuthSockOverride = sshAgent()->authSockOverride();
     m_ui->sshAuthSockLabel->setText(sshAuthSock.isEmpty() ? tr("(empty)") : sshAuthSock);
     m_ui->sshAuthSockOverrideEdit->setText(sshAuthSockOverride);
+    auto sshSecurityKeyProvider = sshAgent()->securityKeyProvider(false);
+    auto sshSecurityKeyProviderOverride = sshAgent()->securityKeyProviderOverride();
+    m_ui->sshSecurityKeyProviderLabel->setText(sshSecurityKeyProvider.isEmpty() ? tr("(empty)")
+                                                                                : sshSecurityKeyProvider);
+    m_ui->sshSecurityKeyProviderOverrideEdit->setText(sshSecurityKeyProviderOverride);
 #endif
 
     m_ui->sshAuthSockMessageWidget->setVisible(sshAgentEnabled);
@@ -85,8 +92,11 @@ void AgentSettingsWidget::saveSettings()
 {
     auto sshAuthSockOverride = m_ui->sshAuthSockOverrideEdit->text();
     sshAgent()->setAuthSockOverride(sshAuthSockOverride);
+    auto sshSecurityKeyProviderOverride = m_ui->sshSecurityKeyProviderOverrideEdit->text();
+    sshAgent()->setSecurityKeyProviderOverride(sshSecurityKeyProviderOverride);
 #ifdef Q_OS_WIN
-    sshAgent()->setUseOpenSSH(m_ui->useOpenSSHCheckBox->isChecked());
+    sshAgent()->setUsePageant(m_ui->usePageantRadioButton->isChecked() || m_ui->useBothRadioButton->isChecked());
+    sshAgent()->setUseOpenSSH(m_ui->useOpenSSHRadioButton->isChecked() || m_ui->useBothRadioButton->isChecked());
 #endif
     sshAgent()->setEnabled(m_ui->enableSSHAgentCheckBox->isChecked());
 }

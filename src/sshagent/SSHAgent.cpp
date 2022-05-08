@@ -19,16 +19,17 @@
 #include "SSHAgent.h"
 
 #include "core/Config.h"
-#include "core/Database.h"
 #include "core/Group.h"
 #include "core/Metadata.h"
-#include "crypto/ssh/BinaryStream.h"
-#include "crypto/ssh/OpenSSHKey.h"
+#include "sshagent/BinaryStream.h"
 #include "sshagent/KeeAgentSettings.h"
 
-#include <QtNetwork>
+#include <QFileInfo>
+#include <QLocalSocket>
+#include <QThread>
 
 #ifdef Q_OS_WIN
+#include <QtEndian>
 #include <windows.h>
 #endif
 
@@ -60,9 +61,19 @@ QString SSHAgent::authSockOverride() const
     return config()->get(Config::SSHAgent_AuthSockOverride).toString();
 }
 
+QString SSHAgent::securityKeyProviderOverride() const
+{
+    return config()->get(Config::SSHAgent_SecurityKeyProviderOverride).toString();
+}
+
 void SSHAgent::setAuthSockOverride(QString& authSockOverride)
 {
     config()->set(Config::SSHAgent_AuthSockOverride, authSockOverride);
+}
+
+void SSHAgent::setSecurityKeyProviderOverride(QString& securityKeyProviderOverride)
+{
+    config()->set(Config::SSHAgent_SecurityKeyProviderOverride, securityKeyProviderOverride);
 }
 
 #ifdef Q_OS_WIN
@@ -71,9 +82,19 @@ bool SSHAgent::useOpenSSH() const
     return config()->get(Config::SSHAgent_UseOpenSSH).toBool();
 }
 
+bool SSHAgent::usePageant() const
+{
+    return config()->get(Config::SSHAgent_UsePageant).toBool();
+}
+
 void SSHAgent::setUseOpenSSH(bool useOpenSSH)
 {
     config()->set(Config::SSHAgent_UseOpenSSH, useOpenSSH);
+}
+
+void SSHAgent::setUsePageant(bool usePageant)
+{
+    config()->set(Config::SSHAgent_UsePageant, usePageant);
 }
 #endif
 
@@ -98,6 +119,21 @@ QString SSHAgent::socketPath(bool allowOverride) const
     return socketPath;
 }
 
+QString SSHAgent::securityKeyProvider(bool allowOverride) const
+{
+    QString skProvider;
+
+    if (allowOverride) {
+        skProvider = securityKeyProviderOverride();
+    }
+
+    if (skProvider.isEmpty()) {
+        skProvider = QProcessEnvironment::systemEnvironment().value("SSH_SK_PROVIDER", "internal");
+    }
+
+    return skProvider;
+}
+
 const QString SSHAgent::errorString() const
 {
     return m_error;
@@ -109,10 +145,14 @@ bool SSHAgent::isAgentRunning() const
     QFileInfo socketFileInfo(socketPath());
     return !socketFileInfo.path().isEmpty() && socketFileInfo.exists();
 #else
-    if (!useOpenSSH()) {
+    if (usePageant() && useOpenSSH()) {
+        return (FindWindowA("Pageant", "Pageant") != nullptr) && WaitNamedPipe(socketPath().toLatin1().data(), 100);
+    } else if (useOpenSSH()) {
+        return WaitNamedPipe(socketPath().toLatin1().data(), 100);
+    } else if (usePageant()) {
         return (FindWindowA("Pageant", "Pageant") != nullptr);
     } else {
-        return WaitNamedPipe(socketPath().toLatin1().data(), 100);
+        return false;
     }
 #endif
 }
@@ -120,11 +160,20 @@ bool SSHAgent::isAgentRunning() const
 bool SSHAgent::sendMessage(const QByteArray& in, QByteArray& out)
 {
 #ifdef Q_OS_WIN
-    if (!useOpenSSH()) {
-        return sendMessagePageant(in, out);
+    if (usePageant() && !sendMessagePageant(in, out)) {
+        return false;
     }
+    if (useOpenSSH() && !sendMessageOpenSSH(in, out)) {
+        return false;
+    }
+    return true;
+#else
+    return sendMessageOpenSSH(in, out);
 #endif
+}
 
+bool SSHAgent::sendMessageOpenSSH(const QByteArray& in, QByteArray& out)
+{
     QLocalSocket socket;
     BinaryStream stream(&socket);
 
@@ -143,7 +192,6 @@ bool SSHAgent::sendMessage(const QByteArray& in, QByteArray& out)
     }
 
     socket.close();
-
     return true;
 }
 
@@ -234,10 +282,12 @@ bool SSHAgent::addIdentity(OpenSSHKey& key, const KeeAgentSettings& settings, co
 
     QByteArray requestData;
     BinaryStream request(&requestData);
+    bool isSecurityKey = key.type().startsWith("sk-");
 
-    request.write((settings.useLifetimeConstraintWhenAdding() || settings.useConfirmConstraintWhenAdding())
-                      ? SSH_AGENTC_ADD_ID_CONSTRAINED
-                      : SSH_AGENTC_ADD_IDENTITY);
+    request.write(
+        (settings.useLifetimeConstraintWhenAdding() || settings.useConfirmConstraintWhenAdding() || isSecurityKey)
+            ? SSH_AGENTC_ADD_ID_CONSTRAINED
+            : SSH_AGENTC_ADD_IDENTITY);
     key.writePrivate(request);
 
     if (settings.useLifetimeConstraintWhenAdding()) {
@@ -247,6 +297,12 @@ bool SSHAgent::addIdentity(OpenSSHKey& key, const KeeAgentSettings& settings, co
 
     if (settings.useConfirmConstraintWhenAdding()) {
         request.write(SSH_AGENT_CONSTRAIN_CONFIRM);
+    }
+
+    if (isSecurityKey) {
+        request.write(SSH_AGENT_CONSTRAIN_EXTENSION);
+        request.writeString(QString("sk-provider@openssh.com"));
+        request.writeString(securityKeyProvider());
     }
 
     QByteArray responseData;
@@ -264,6 +320,11 @@ bool SSHAgent::addIdentity(OpenSSHKey& key, const KeeAgentSettings& settings, co
 
         if (settings.useConfirmConstraintWhenAdding()) {
             m_error += "\n" + tr("A confirmation request is not supported by the agent (check options).");
+        }
+
+        if (isSecurityKey) {
+            m_error +=
+                "\n" + tr("Security keys are not supported by the agent or the security key provider is unavailable.");
         }
 
         return false;

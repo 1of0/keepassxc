@@ -20,7 +20,6 @@
 #define KEEPASSX_CONFIG_H
 
 #include <QPointer>
-#include <QScopedPointer>
 #include <QVariant>
 
 class QSettings;
@@ -44,7 +43,9 @@ public:
         AutoSaveOnExit,
         AutoSaveNonDataChanges,
         BackupBeforeSave,
+        BackupFilePathPattern,
         UseAtomicSaves,
+        UseDirectWriteSaves,
         SearchLimitGroup,
         MinimizeOnOpenUrl,
         HideWindowOnCopy,
@@ -59,11 +60,11 @@ public:
         AutoTypeHideExpiredEntry,
         GlobalAutoTypeKey,
         GlobalAutoTypeModifiers,
+        GlobalAutoTypeRetypeTime,
         AutoTypeLibvirtDeadKeysWindows,
         AutoTypeLibvirtDeadKeysOther,
         FaviconDownloadTimeout,
         UpdateCheckMessageShown,
-        UseTouchID,
 
         LastDatabases,
         LastKeyFiles,
@@ -71,12 +72,10 @@ public:
         LastActiveDatabase,
         LastOpenedDatabases,
         LastDir,
-        LastAttachmentDir,
 
         GUI_Language,
         GUI_HideToolbar,
         GUI_MovableToolbar,
-        GUI_HideGroupsPanel,
         GUI_HidePreviewPanel,
         GUI_AlwaysOnTop,
         GUI_ToolButtonStyle,
@@ -93,6 +92,8 @@ public:
         GUI_CompactMode,
         GUI_CheckForUpdates,
         GUI_CheckForUpdatesIncludeBetas,
+        GUI_ShowExpiredEntriesOnDatabaseUnlock,
+        GUI_ShowExpiredEntriesOnDatabaseUnlockOffsetDays,
 
         GUI_MainWindowGeometry,
         GUI_MainWindowState,
@@ -100,6 +101,7 @@ public:
         GUI_SearchViewState,
         GUI_PreviewSplitterState,
         GUI_SplitterState,
+        GUI_GroupSplitterState,
         GUI_AutoTypeSelectDialogSize,
         GUI_CheckForUpdatesNextCheck,
 
@@ -119,17 +121,15 @@ public:
         Security_HidePasswordPreviewPanel,
         Security_AutoTypeAsk,
         Security_IconDownloadFallback,
-        Security_ResetTouchId,
-        Security_ResetTouchIdTimeout,
-        Security_ResetTouchIdScreenlock,
         Security_NoConfirmMoveEntryToRecycleBin,
+        Security_EnableCopyOnDoubleClick,
+        Security_QuickUnlock,
 
         Browser_Enabled,
         Browser_ShowNotification,
         Browser_BestMatchOnly,
         Browser_UnlockDatabase,
         Browser_MatchUrlScheme,
-        Browser_SortByUsername,
         Browser_SupportBrowserProxy,
         Browser_UseCustomProxy,
         Browser_CustomProxyLocation,
@@ -150,20 +150,20 @@ public:
 
         SSHAgent_Enabled,
         SSHAgent_UseOpenSSH,
+        SSHAgent_UsePageant,
         SSHAgent_AuthSockOverride,
+        SSHAgent_SecurityKeyProviderOverride,
 
         FdoSecrets_Enabled,
         FdoSecrets_ShowNotification,
         FdoSecrets_ConfirmDeleteItem,
         FdoSecrets_ConfirmAccessItem,
+        FdoSecrets_UnlockBeforeSearch,
 
         KeeShare_QuietSuccess,
         KeeShare_Own,
         KeeShare_Foreign,
         KeeShare_Active,
-        KeeShare_LastDir,
-        KeeShare_LastKeyDir,
-        KeeShare_LastShareDir,
 
         PasswordGenerator_LowerCase,
         PasswordGenerator_UpperCase,
@@ -198,6 +198,7 @@ public:
 
     ~Config() override;
     QVariant get(ConfigKey key);
+    QVariant getDefault(ConfigKey key);
     QString getFileName();
     void set(ConfigKey key, const QVariant& value);
     void remove(ConfigKey key);

@@ -46,6 +46,10 @@ Files: cmake/FindYubiKey.cmake
 Copyright: 2014 Kyle Manna <kyle@kylemanna.com>
 License: GPL-2 or GPL-3
 
+Files: cmake/FindBotan2.cmake
+Copyright: 2018 Ribose Inc.
+License: BSD-2-clause
+
 Files: cmake/GenerateProductVersion.cmake
 Copyright: 2015 halex2005 <akharlov@gmail.com>
 License: MIT
@@ -137,11 +141,13 @@ Files: share/icons/badges/2_Expired.svg
        share/icons/database/C46_Help.svg
        share/icons/database/C53_Apply.svg
        share/icons/database/C61_Services.svg
-Copyright: 2020 KeePassXC Team <team@keepassxc.org>
+Copyright: 2022 KeePassXC Team <team@keepassxc.org>
 License: MIT
 
 Files: share/icons/application/scalable/actions/chevron-double-down.svg
        share/icons/application/scalable/actions/chevron-double-right.svg
+       share/icons/application/scalable/actions/database-lock.svg
+       share/icons/application/scalable/actions/database-lock-all.svg
        share/icons/application/scalable/actions/document-close.svg
        share/icons/application/scalable/actions/document-edit.svg
        share/icons/application/scalable/actions/document-export.svg
@@ -160,6 +166,8 @@ Files: share/icons/application/scalable/actions/chevron-double-down.svg
        share/icons/application/scalable/actions/entry-edit.svg
        share/icons/application/scalable/actions/entry-new.svg
        share/icons/application/scalable/actions/favicon-download.svg
+       share/icons/application/scalable/actions/fingerprint.svg
+       share/icons/application/scalable/actions/group-clone.svg
        share/icons/application/scalable/actions/group-delete.svg
        share/icons/application/scalable/actions/group-edit.svg
        share/icons/application/scalable/actions/group-empty-trash.svg
@@ -167,14 +175,12 @@ Files: share/icons/application/scalable/actions/chevron-double-down.svg
        share/icons/application/scalable/actions/hammer-wrench.svg
        share/icons/application/scalable/actions/health.svg
        share/icons/application/scalable/actions/help-about.svg
-       share/icons/application/scalable/actions/key-enter.svg
        share/icons/application/scalable/actions/lock-question.svg
        share/icons/application/scalable/actions/message-close.svg
        share/icons/application/scalable/actions/move-down.svg
        share/icons/application/scalable/actions/move-up.svg
        share/icons/application/scalable/actions/paperclip.svg
        share/icons/application/scalable/actions/password-copy.svg
-       share/icons/application/scalable/actions/password-generate.svg
        share/icons/application/scalable/actions/password-generator.svg
        share/icons/application/scalable/actions/password-show-off.svg
        share/icons/application/scalable/actions/password-show-on.svg
@@ -184,6 +190,9 @@ Files: share/icons/application/scalable/actions/chevron-double-down.svg
        share/icons/application/scalable/actions/statistics.svg
        share/icons/application/scalable/actions/system-help.svg
        share/icons/application/scalable/actions/system-search.svg
+       share/icons/application/scalable/actions/tag.svg
+       share/icons/application/scalable/actions/tag-search.svg
+       share/icons/application/scalable/actions/trash.svg
        share/icons/application/scalable/actions/url-copy.svg
        share/icons/application/scalable/actions/username-copy.svg
        share/icons/application/scalable/actions/view-history.svg
@@ -233,3 +242,9 @@ Files: share/icons/application/scalable/actions/hibp.svg
        share/icons/database/C64_Apple.svg
 Copyright: GPL-2+
 Comment: from the Simple Icons repo (https://github.com/simple-icons/simple-icons/)
+
+Files: src/thirdparty/ykcore/yk*
+       src/thirdparty/ykcore/yubikey.h
+Copyright: 2006-2015, Yubico AB
+License: BSD-2-Clause
+Comment: from the yubikey-personalization repo (https://github.com/Yubico/yubikey-personalization)

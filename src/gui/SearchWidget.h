@@ -22,8 +22,9 @@
 #include <QTimer>
 #include <QWidget>
 
-#include "core/SignalMultiplexer.h"
 #include "gui/DatabaseWidget.h"
+
+class SignalMultiplexer;
 
 namespace Ui
 {
@@ -52,16 +53,19 @@ protected:
 
 signals:
     void search(const QString& text);
+    void searchCanceled();
     void caseSensitiveChanged(bool state);
     void limitGroupChanged(bool state);
     void escapePressed();
     void copyPressed();
     void downPressed();
     void enterPressed();
+    void lostFocus();
 
 public slots:
     void databaseChanged(DatabaseWidget* dbWidget = nullptr);
-    void searchFocus();
+    void focusSearch();
+    void clearSearch();
 
 private slots:
     void startSearchTimer();

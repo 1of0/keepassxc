@@ -18,12 +18,10 @@
 
 #include <QCommandLineParser>
 #include <QFile>
-#include <QTextStream>
 #include <QWindow>
 
 #include "cli/Utils.h"
 #include "config-keepassx.h"
-#include "core/Config.h"
 #include "core/Tools.h"
 #include "crypto/Crypto.h"
 #include "gui/Application.h"
@@ -71,6 +69,7 @@ int main(int argc, char** argv)
     QCommandLineOption configOption("config", QObject::tr("path to a custom config file"), "config");
     QCommandLineOption localConfigOption(
         "localconfig", QObject::tr("path to a custom local config file"), "localconfig");
+    QCommandLineOption lockOption("lock", QObject::tr("lock all open databases"));
     QCommandLineOption keyfileOption("keyfile", QObject::tr("key file of the database"), "keyfile");
     QCommandLineOption pwstdinOption("pw-stdin", QObject::tr("read password of the database from stdin"));
     QCommandLineOption allowScreenCaptureOption("allow-screencapture",
@@ -81,6 +80,7 @@ int main(int argc, char** argv)
     QCommandLineOption debugInfoOption(QStringList() << "debug-info", QObject::tr("Displays debugging information."));
     parser.addOption(configOption);
     parser.addOption(localConfigOption);
+    parser.addOption(lockOption);
     parser.addOption(keyfileOption);
     parser.addOption(pwstdinOption);
     parser.addOption(debugInfoOption);
@@ -96,19 +96,46 @@ int main(int argc, char** argv)
         return EXIT_SUCCESS;
     }
 
+    // Show debug information and then exit
+    if (parser.isSet(debugInfoOption)) {
+        QTextStream out(stdout, QIODevice::WriteOnly);
+        QString debugInfo = Tools::debugInfo().append("\n").append(Crypto::debugInfo());
+        out << debugInfo << endl;
+        return EXIT_SUCCESS;
+    }
+
     // Process config file options early
     if (parser.isSet(configOption) || parser.isSet(localConfigOption)) {
         Config::createConfigFromFile(parser.value(configOption), parser.value(localConfigOption));
     }
 
     // Process single instance and early exit if already running
+    // FIXME: this is a *mess* and it is entirely my fault. --wundrweapon
     const QStringList fileNames = parser.positionalArguments();
     if (app.isAlreadyRunning()) {
-        if (!fileNames.isEmpty()) {
-            app.sendFileNamesToRunningInstance(fileNames);
+        if (parser.isSet(lockOption)) {
+            if (app.sendLockToInstance()) {
+                qInfo() << QObject::tr("Locked databases.").toUtf8().constData();
+            } else {
+                qWarning() << QObject::tr("Database failed to lock.").toUtf8().constData();
+                return EXIT_FAILURE;
+            }
+        } else {
+            if (!fileNames.isEmpty()) {
+                app.sendFileNamesToRunningInstance(fileNames);
+            }
+
+            qWarning() << QObject::tr("Another instance of KeePassXC is already running.").toUtf8().constData();
         }
-        qWarning() << QObject::tr("Another instance of KeePassXC is already running.").toUtf8().constData();
         return EXIT_SUCCESS;
+    }
+
+    if (!Crypto::init()) {
+        QString error = QObject::tr("Fatal error while testing the cryptographic functions.");
+        error.append("\n");
+        error.append(Crypto::errorString());
+        MessageBox::critical(nullptr, QObject::tr("KeePassXC - Error"), error);
+        return EXIT_FAILURE;
     }
 
     // Apply the configured theme before creating any GUI elements
@@ -119,23 +146,6 @@ int main(int argc, char** argv)
 #endif
 
     Application::bootstrap();
-
-    if (!Crypto::init()) {
-        QString error = QObject::tr("Fatal error while testing the cryptographic functions.");
-        error.append("\n");
-        error.append(Crypto::errorString());
-        MessageBox::critical(nullptr, QObject::tr("KeePassXC - Error"), error);
-        return EXIT_FAILURE;
-    }
-
-    // Displaying the debugging informations must be done after Crypto::init,
-    // to make sure we know which libgcrypt version is used.
-    if (parser.isSet(debugInfoOption)) {
-        QTextStream out(stdout, QIODevice::WriteOnly);
-        QString debugInfo = Tools::debugInfo().append("\n").append(Crypto::debugInfo());
-        out << debugInfo << endl;
-        return EXIT_SUCCESS;
-    }
 
     MainWindow mainWindow;
 
@@ -156,6 +166,9 @@ int main(int argc, char** argv)
 #endif
 
     const bool pwstdin = parser.isSet(pwstdinOption);
+    if (!fileNames.isEmpty() && pwstdin) {
+        Utils::setDefaultTextStreams();
+    }
     for (const QString& filename : fileNames) {
         QString password;
         if (pwstdin) {
@@ -163,7 +176,6 @@ int main(int argc, char** argv)
             // buffer for native messaging, even if the specified file does not exist
             QTextStream out(stdout, QIODevice::WriteOnly);
             out << QObject::tr("Database password: ") << flush;
-            Utils::setDefaultTextStreams();
             password = Utils::getPassword();
         }
 

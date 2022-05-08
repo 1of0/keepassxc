@@ -18,12 +18,8 @@
 #include "EditGroupWidgetKeeShare.h"
 #include "ui_EditGroupWidgetKeeShare.h"
 
-#include "core/Config.h"
-#include "core/CustomData.h"
+#include "KeeShareSettings.h"
 #include "core/Group.h"
-#include "core/Metadata.h"
-#include "core/Resources.h"
-#include "crypto/ssh/OpenSSHKey.h"
 #include "gui/FileDialog.h"
 #include "keeshare/KeeShare.h"
 
@@ -88,7 +84,7 @@ void EditGroupWidgetKeeShare::setGroup(Group* temporaryGroup, QSharedPointer<Dat
     m_temporaryGroup = temporaryGroup;
 
     if (m_temporaryGroup) {
-        connect(m_temporaryGroup, SIGNAL(groupModified()), SLOT(update()));
+        connect(m_temporaryGroup, &Group::modified, this, &EditGroupWidgetKeeShare::update);
     }
 
     update();
@@ -107,13 +103,8 @@ void EditGroupWidgetKeeShare::updateSharingState()
         return;
     }
 
-    auto supportedExtensions = QStringList();
-#if defined(WITH_XC_KEESHARE_INSECURE)
-    supportedExtensions << KeeShare::unsignedContainerFileType();
-#endif
-#if defined(WITH_XC_KEESHARE_SECURE)
-    supportedExtensions << KeeShare::signedContainerFileType();
-#endif
+    QStringList supportedExtensions;
+    supportedExtensions << KeeShare::unsignedContainerFileType() << KeeShare::signedContainerFileType();
 
     // Custom message for active KeeShare reference
     const auto reference = KeeShare::referenceOf(m_temporaryGroup);
@@ -228,34 +219,19 @@ void EditGroupWidgetKeeShare::launchPathSelectionDialog()
     if (!m_temporaryGroup) {
         return;
     }
-    QString defaultDirPath = config()->get(Config::KeeShare_LastShareDir).toString();
-    const bool dirExists = !defaultDirPath.isEmpty() && QDir(defaultDirPath).exists();
-    if (!dirExists) {
-        defaultDirPath = QStandardPaths::standardLocations(QStandardPaths::DocumentsLocation).first();
-    }
     auto reference = KeeShare::referenceOf(m_temporaryGroup);
-    QString defaultFiletype = "";
-    auto supportedExtensions = QStringList();
-    auto unsupportedExtensions = QStringList();
-    auto knownFilters = QStringList() << QString("%1 (*)").arg("All files");
-#if defined(WITH_XC_KEESHARE_INSECURE)
-    defaultFiletype = KeeShare::unsignedContainerFileType();
-    supportedExtensions << KeeShare::unsignedContainerFileType();
-    knownFilters.prepend(
-        QString("%1 (*.%2)").arg(tr("KeeShare unsigned container"), KeeShare::unsignedContainerFileType()));
-#else
-    unsupportedExtensions << KeeShare::unsignedContainerFileType();
-#endif
-#if defined(WITH_XC_KEESHARE_SECURE)
-    defaultFiletype = KeeShare::signedContainerFileType();
-    supportedExtensions << KeeShare::signedContainerFileType();
-    knownFilters.prepend(
-        QString("%1 (*.%2)").arg(tr("KeeShare signed container"), KeeShare::signedContainerFileType()));
-#else
-    unsupportedExtensions << KeeShare::signedContainerFileType();
-#endif
+    QString defaultFiletype = KeeShare::unsignedContainerFileType();
+
+    QStringList supportedExtensions;
+    supportedExtensions << KeeShare::unsignedContainerFileType() << KeeShare::signedContainerFileType();
+
+    QStringList knownFilters;
+    knownFilters << QString("%1 (*.%2)").arg(tr("KeeShare container"), KeeShare::unsignedContainerFileType());
+    knownFilters << QString("%1 (*.%2)").arg(tr("KeeShare signed container"), KeeShare::signedContainerFileType());
+    knownFilters << QString("%1 (*)").arg("All files");
 
     const auto filters = knownFilters.join(";;");
+    auto defaultDirPath = FileDialog::getLastDir("keeshare");
     auto filename = reference.path;
     if (filename.isEmpty()) {
         filename = m_temporaryGroup->name();
@@ -277,7 +253,7 @@ void EditGroupWidgetKeeShare::launchPathSelectionDialog()
         return;
     }
     bool validFilename = false;
-    for (const auto& extension : supportedExtensions + unsupportedExtensions) {
+    for (const auto& extension : supportedExtensions) {
         if (filename.endsWith(extension, Qt::CaseInsensitive)) {
             validFilename = true;
             break;
@@ -289,7 +265,7 @@ void EditGroupWidgetKeeShare::launchPathSelectionDialog()
 
     m_ui->pathEdit->setText(filename);
     selectPath();
-    config()->set(Config::KeeShare_LastShareDir, QFileInfo(filename).absolutePath());
+    FileDialog::saveLastDir("keeshare", filename);
 
     updateSharingState();
 }

@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2017 KeePassXC Team <team@keepassxc.org>
+ *  Copyright (C) 2021 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -17,8 +17,11 @@
 
 #include "TestTools.h"
 
-#include <QLocale>
+#include "core/Clock.h"
+
+#include <QRegularExpression>
 #include <QTest>
+#include <QUuid>
 
 QTEST_GUILESS_MAIN(TestTools)
 
@@ -49,7 +52,7 @@ void TestTools::testHumanReadableFileSize()
 void TestTools::testIsHex()
 {
     QVERIFY(Tools::isHex("0123456789abcdefABCDEF"));
-    QVERIFY(not Tools::isHex(QByteArray("0xnothex")));
+    QVERIFY(!Tools::isHex(QByteArray("0xnothex")));
 }
 
 void TestTools::testIsBase64()
@@ -60,9 +63,9 @@ void TestTools::testIsBase64()
     QVERIFY(Tools::isBase64(QByteArray("abcd9876MN==")));
     QVERIFY(Tools::isBase64(QByteArray("abcd9876DEFGhijkMNO=")));
     QVERIFY(Tools::isBase64(QByteArray("abcd987/DEFGh+jk/NO=")));
-    QVERIFY(not Tools::isBase64(QByteArray("abcd123==")));
-    QVERIFY(not Tools::isBase64(QByteArray("abc_")));
-    QVERIFY(not Tools::isBase64(QByteArray("123")));
+    QVERIFY(!Tools::isBase64(QByteArray("abcd123==")));
+    QVERIFY(!Tools::isBase64(QByteArray("abc_")));
+    QVERIFY(!Tools::isBase64(QByteArray("123")));
 }
 
 void TestTools::testEnvSubstitute()
@@ -88,4 +91,110 @@ void TestTools::testEnvSubstitute()
     QCOMPARE(Tools::envSubstitute("$HOME/.ssh/id_rsa", environment), QString("/home/user/.ssh/id_rsa"));
     QCOMPARE(Tools::envSubstitute("start/$EMPTY$$EMPTY$HOME/end", environment), QString("start/$/home/user/end"));
 #endif
+}
+
+void TestTools::testValidUuid()
+{
+    auto validUuid = Tools::uuidToHex(QUuid::createUuid());
+    auto nonRfc4122Uuid = "1234567890abcdef1234567890abcdef";
+    auto emptyUuid = QString();
+    auto shortUuid = validUuid.left(10);
+    auto longUuid = validUuid + "baddata";
+    auto nonHexUuid = Tools::uuidToHex(QUuid::createUuid()).replace(0, 1, 'p');
+
+    QVERIFY(Tools::isValidUuid(validUuid));
+    /* Before https://github.com/keepassxreboot/keepassxc/pull/1770/, entry
+     * UUIDs are simply random 16-byte strings. Such older entries should be
+     * accepted as well. */
+    QVERIFY(Tools::isValidUuid(nonRfc4122Uuid));
+    QVERIFY(!Tools::isValidUuid(emptyUuid));
+    QVERIFY(!Tools::isValidUuid(shortUuid));
+    QVERIFY(!Tools::isValidUuid(longUuid));
+    QVERIFY(!Tools::isValidUuid(nonHexUuid));
+}
+
+void TestTools::testBackupFilePatternSubstitution_data()
+{
+    QTest::addColumn<QString>("pattern");
+    QTest::addColumn<QString>("dbFilePath");
+    QTest::addColumn<QString>("expectedSubstitution");
+
+    static const auto DEFAULT_DB_FILE_NAME = QStringLiteral("KeePassXC");
+    static const auto DEFAULT_DB_FILE_PATH = QStringLiteral("/tmp/") + DEFAULT_DB_FILE_NAME + QStringLiteral(".kdbx");
+    static const auto NOW = Clock::currentDateTime();
+    auto DEFAULT_FORMATTED_TIME = NOW.toString("dd_MM_yyyy_hh-mm-ss");
+
+    QTest::newRow("Null pattern") << QString() << DEFAULT_DB_FILE_PATH << QString();
+    QTest::newRow("Empty pattern") << QString("") << DEFAULT_DB_FILE_PATH << QString("");
+    QTest::newRow("Null database path") << "valid_pattern" << QString() << QString();
+    QTest::newRow("Empty database path") << "valid_pattern" << QString("") << QString();
+    QTest::newRow("Unclosed/invalid pattern") << "{DB_FILENAME" << DEFAULT_DB_FILE_PATH << "{DB_FILENAME";
+    QTest::newRow("Unknown pattern") << "{NO_MATCH}" << DEFAULT_DB_FILE_PATH << "{NO_MATCH}";
+    QTest::newRow("Do not replace escaped patterns (filename)")
+        << "\\{DB_FILENAME\\}" << DEFAULT_DB_FILE_PATH << "{DB_FILENAME}";
+    QTest::newRow("Do not replace escaped patterns (time)")
+        << "\\{TIME:dd.MM.yyyy\\}" << DEFAULT_DB_FILE_PATH << "{TIME:dd.MM.yyyy}";
+    QTest::newRow("Multiple patterns should be replaced")
+        << "{DB_FILENAME} {TIME} {DB_FILENAME}" << DEFAULT_DB_FILE_PATH
+        << DEFAULT_DB_FILE_NAME + QStringLiteral(" ") + DEFAULT_FORMATTED_TIME + QStringLiteral(" ")
+               + DEFAULT_DB_FILE_NAME;
+    QTest::newRow("Default time pattern") << "{TIME}" << DEFAULT_DB_FILE_PATH << DEFAULT_FORMATTED_TIME;
+    QTest::newRow("Default time pattern (empty formatter)")
+        << "{TIME:}" << DEFAULT_DB_FILE_PATH << DEFAULT_FORMATTED_TIME;
+    QTest::newRow("Custom time pattern") << "{TIME:dd-ss}" << DEFAULT_DB_FILE_PATH << NOW.toString("dd-ss");
+    QTest::newRow("Invalid custom time pattern") << "{TIME:dd/-ss}" << DEFAULT_DB_FILE_PATH << NOW.toString("dd/-ss");
+    QTest::newRow("Recursive substitution") << "{TIME:'{TIME}'}" << DEFAULT_DB_FILE_PATH << DEFAULT_FORMATTED_TIME;
+    QTest::newRow("{DB_FILENAME} substitution")
+        << "some {DB_FILENAME} thing" << DEFAULT_DB_FILE_PATH
+        << QStringLiteral("some ") + DEFAULT_DB_FILE_NAME + QStringLiteral(" thing");
+    QTest::newRow("{DB_FILENAME} substitution with multiple extensions") << "some {DB_FILENAME} thing"
+                                                                         << "/tmp/KeePassXC.kdbx.ext"
+                                                                         << "some KeePassXC.kdbx thing";
+    // Not relevant right now, added test anyway
+    QTest::newRow("There should be no substitution loops") << "{DB_FILENAME}"
+                                                           << "{TIME:'{DB_FILENAME}'}.ext"
+                                                           << "{DB_FILENAME}";
+}
+
+void TestTools::testBackupFilePatternSubstitution()
+{
+    QFETCH(QString, pattern);
+    QFETCH(QString, dbFilePath);
+    QFETCH(QString, expectedSubstitution);
+
+    QCOMPARE(Tools::substituteBackupFilePath(pattern, dbFilePath), expectedSubstitution);
+}
+
+void TestTools::testConvertToRegex()
+{
+    QFETCH(QString, input);
+    QFETCH(int, options);
+    QFETCH(QString, expected);
+
+    auto regex = Tools::convertToRegex(input, options).pattern();
+    QCOMPARE(regex, expected);
+}
+
+void TestTools::testConvertToRegex_data()
+{
+    const QString input = R"(te|st*t?[5]^(test);',.)";
+
+    QTest::addColumn<QString>("input");
+    QTest::addColumn<int>("options");
+    QTest::addColumn<QString>("expected");
+
+    QTest::newRow("No Options") << input << static_cast<int>(Tools::RegexConvertOpts::DEFAULT)
+                                << QString(R"(te|st*t?[5]^(test);',.)");
+    QTest::newRow("Exact Match") << input << static_cast<int>(Tools::RegexConvertOpts::EXACT_MATCH)
+                                 << QString(R"(^te|st*t?[5]^(test);',.$)");
+    QTest::newRow("Exact Match & Wildcard")
+        << input << static_cast<int>(Tools::RegexConvertOpts::EXACT_MATCH | Tools::RegexConvertOpts::WILDCARD_ALL)
+        << QString(R"(^te|st.*t.\[5\]\^\(test\);'\,\.$)");
+    QTest::newRow("Wildcard Single Match") << input << static_cast<int>(Tools::RegexConvertOpts::WILDCARD_SINGLE_MATCH)
+                                           << QString(R"(te\|st\*t.\[5\]\^\(test\);'\,\.)");
+    QTest::newRow("Wildcard OR") << input << static_cast<int>(Tools::RegexConvertOpts::WILDCARD_LOGICAL_OR)
+                                 << QString(R"(te|st\*t\?\[5\]\^\(test\);'\,\.)");
+    QTest::newRow("Wildcard Unlimited Match")
+        << input << static_cast<int>(Tools::RegexConvertOpts::WILDCARD_UNLIMITED_MATCH)
+        << QString(R"(te\|st.*t\?\[5\]\^\(test\);'\,\.)");
 }

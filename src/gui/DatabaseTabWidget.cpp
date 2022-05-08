@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2018 KeePassXC Team <team@keepassxc.org>
+ *  Copyright (C) 2021 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -18,28 +18,19 @@
 #include "DatabaseTabWidget.h"
 
 #include <QFileInfo>
-#include <QPushButton>
-#include <QTabWidget>
+#include <QTabBar>
 
 #include "autotype/AutoType.h"
-#include "core/AsyncTask.h"
-#include "core/Config.h"
-#include "core/Database.h"
-#include "core/Global.h"
-#include "core/Group.h"
-#include "core/Metadata.h"
 #include "core/Tools.h"
 #include "format/CsvExporter.h"
-#include "format/HtmlExporter.h"
 #include "gui/Clipboard.h"
 #include "gui/DatabaseOpenDialog.h"
 #include "gui/DatabaseWidget.h"
 #include "gui/DatabaseWidgetStateSync.h"
-#include "gui/DragTabBar.h"
 #include "gui/FileDialog.h"
+#include "gui/HtmlExporter.h"
 #include "gui/MessageBox.h"
-#include "gui/entry/EntryView.h"
-#include "gui/group/GroupView.h"
+#include "gui/export/ExportDialog.h"
 #ifdef Q_OS_MACOS
 #include "gui/osutils/macutils/MacUtils.h"
 #endif
@@ -51,7 +42,9 @@ DatabaseTabWidget::DatabaseTabWidget(QWidget* parent)
     , m_dbWidgetPendingLock(nullptr)
     , m_databaseOpenDialog(new DatabaseOpenDialog(this))
 {
-    auto* tabBar = new DragTabBar(this);
+    auto* tabBar = new QTabBar(this);
+    tabBar->setAcceptDrops(true);
+    tabBar->setChangeCurrentOnDrag(true);
     setTabBar(tabBar);
     setDocumentMode(true);
 
@@ -60,11 +53,11 @@ DatabaseTabWidget::DatabaseTabWidget(QWidget* parent)
     connect(this, SIGNAL(currentChanged(int)), SLOT(emitActiveDatabaseChanged()));
     connect(this, SIGNAL(activeDatabaseChanged(DatabaseWidget*)),
             m_dbWidgetStateSync, SLOT(setActive(DatabaseWidget*)));
-    connect(autoType(), SIGNAL(globalAutoTypeTriggered()), SLOT(performGlobalAutoType()));
-    connect(autoType(), SIGNAL(autotypePerformed()), SLOT(relockPendingDatabase()));
+    connect(autoType(), SIGNAL(globalAutoTypeTriggered(const QString&)), SLOT(performGlobalAutoType(const QString&)));
+    connect(autoType(), SIGNAL(autotypeRetypeTimeout()), SLOT(relockPendingDatabase()));
     connect(autoType(), SIGNAL(autotypeRejected()), SLOT(relockPendingDatabase()));
     connect(m_databaseOpenDialog.data(), &DatabaseOpenDialog::dialogFinished,
-            this, &DatabaseTabWidget::databaseUnlockDialogFinished);
+            this, &DatabaseTabWidget::handleDatabaseUnlockDialogFinished);
     // clang-format on
 
 #ifdef Q_OS_MACOS
@@ -136,9 +129,10 @@ DatabaseWidget* DatabaseTabWidget::newDatabase()
 
 void DatabaseTabWidget::openDatabase()
 {
-    QString filter = QString("%1 (*.kdbx);;%2 (*)").arg(tr("KeePass 2 Database"), tr("All files"));
-    QString fileName = fileDialog()->getOpenFileName(this, tr("Open database"), "", filter);
+    auto filter = QString("%1 (*.kdbx);;%2 (*)").arg(tr("KeePass 2 Database"), tr("All files"));
+    auto fileName = fileDialog()->getOpenFileName(this, tr("Open database"), FileDialog::getLastDir("db"), filter);
     if (!fileName.isEmpty()) {
+        FileDialog::saveLastDir("db", fileName, true);
         addDatabaseTab(fileName);
     }
 }
@@ -188,6 +182,33 @@ void DatabaseTabWidget::addDatabaseTab(const QString& filePath,
 }
 
 /**
+ * Tries to lock the database at the given index and if
+ * it succeeds proceed to switch to the first unlocked database tab
+ */
+void DatabaseTabWidget::lockAndSwitchToFirstUnlockedDatabase(int index)
+{
+    if (index == -1) {
+        index = currentIndex();
+    }
+    auto dbWidget = databaseWidgetFromIndex(index);
+    if (!dbWidget) {
+        return;
+    }
+
+    if (dbWidget->isLocked()) {
+        // Database is already locked, act like lock all databases instead
+        lockDatabases();
+    } else if (dbWidget->lock()) {
+        for (int i = 0, c = count(); i < c; ++i) {
+            if (!databaseWidgetFromIndex(i)->isLocked()) {
+                setCurrentIndex(i);
+                return;
+            }
+        }
+    }
+}
+
+/**
  * Add a new database tab containing the given DatabaseWidget
  * @param filePath
  * @param inBackground optional, don't focus tab after opening
@@ -224,12 +245,13 @@ void DatabaseTabWidget::addDatabaseTab(DatabaseWidget* dbWidget, bool inBackgrou
 
 void DatabaseTabWidget::importCsv()
 {
-    QString filter = QString("%1 (*.csv);;%2 (*)").arg(tr("CSV file"), tr("All files"));
-    QString fileName = fileDialog()->getOpenFileName(this, tr("Select CSV file"), "", filter);
-
+    auto filter = QString("%1 (*.csv);;%2 (*)").arg(tr("CSV file"), tr("All files"));
+    auto fileName = fileDialog()->getOpenFileName(this, tr("Select CSV file"), FileDialog::getLastDir("csv"), filter);
     if (fileName.isEmpty()) {
         return;
     }
+
+    FileDialog::saveLastDir("csv", fileName, true);
 
     auto db = execNewDatabaseWizard();
     if (!db) {
@@ -245,9 +267,11 @@ void DatabaseTabWidget::mergeDatabase()
 {
     auto dbWidget = currentDatabaseWidget();
     if (dbWidget && !dbWidget->isLocked()) {
-        QString filter = QString("%1 (*.kdbx);;%2 (*)").arg(tr("KeePass 2 Database"), tr("All files"));
-        const QString fileName = fileDialog()->getOpenFileName(this, tr("Merge database"), QString(), filter);
+        auto filter = QString("%1 (*.kdbx);;%2 (*)").arg(tr("KeePass 2 Database"), tr("All files"));
+        auto fileName =
+            fileDialog()->getOpenFileName(this, tr("Merge database"), FileDialog::getLastDir("merge"), filter);
         if (!fileName.isEmpty()) {
+            FileDialog::saveLastDir("merge", fileName, true);
             mergeDatabase(fileName);
         }
     }
@@ -260,12 +284,14 @@ void DatabaseTabWidget::mergeDatabase(const QString& filePath)
 
 void DatabaseTabWidget::importKeePass1Database()
 {
-    QString filter = QString("%1 (*.kdb);;%2 (*)").arg(tr("KeePass 1 database"), tr("All files"));
-    QString fileName = fileDialog()->getOpenFileName(this, tr("Open KeePass 1 database"), QString(), filter);
-
+    auto filter = QString("%1 (*.kdb);;%2 (*)").arg(tr("KeePass 1 database"), tr("All files"));
+    auto fileName =
+        fileDialog()->getOpenFileName(this, tr("Open KeePass 1 database"), FileDialog::getLastDir("kp1"), filter);
     if (fileName.isEmpty()) {
         return;
     }
+
+    FileDialog::saveLastDir("kp1", fileName, true);
 
     auto db = QSharedPointer<Database>::create();
     auto* dbWidget = new DatabaseWidget(db, this);
@@ -275,15 +301,18 @@ void DatabaseTabWidget::importKeePass1Database()
 
 void DatabaseTabWidget::importOpVaultDatabase()
 {
+    auto defaultDir = FileDialog::getLastDir("opvault");
 #ifdef Q_OS_MACOS
-    QString fileName = fileDialog()->getOpenFileName(this, tr("Open OPVault"), {}, "OPVault (*.opvault)");
+    QString fileName = fileDialog()->getOpenFileName(this, tr("Open OPVault"), defaultDir, "OPVault (*.opvault)");
 #else
-    QString fileName = fileDialog()->getExistingDirectory(this, tr("Open OPVault"));
+    QString fileName = fileDialog()->getExistingDirectory(this, tr("Open OPVault"), defaultDir);
 #endif
 
     if (fileName.isEmpty()) {
         return;
     }
+
+    FileDialog::saveLastDir("opvault", fileName);
 
     auto db = QSharedPointer<Database>::create();
     auto* dbWidget = new DatabaseWidget(db, this);
@@ -426,17 +455,24 @@ void DatabaseTabWidget::exportToCsv()
         return;
     }
 
-    const QString fileName = fileDialog()->getSaveFileName(
-        this, tr("Export database to CSV file"), QString(), tr("CSV file").append(" (*.csv)"), nullptr, nullptr);
+    auto fileName = fileDialog()->getSaveFileName(
+        this, tr("Export database to CSV file"), FileDialog::getLastDir("csv"), tr("CSV file").append(" (*.csv)"));
     if (fileName.isEmpty()) {
         return;
     }
+
+    FileDialog::saveLastDir("csv", fileName, true);
 
     CsvExporter csvExporter;
     if (!csvExporter.exportDatabase(fileName, db)) {
         emit messageGlobal(tr("Writing the CSV file failed.").append("\n").append(csvExporter.errorString()),
                            MessageWidget::Error);
     }
+}
+
+void DatabaseTabWidget::handleExportError(const QString& reason)
+{
+    emit messageGlobal(tr("Writing the HTML file failed.").append("\n").append(reason), MessageWidget::Error);
 }
 
 void DatabaseTabWidget::exportToHtml()
@@ -447,21 +483,9 @@ void DatabaseTabWidget::exportToHtml()
         return;
     }
 
-    if (!warnOnExport()) {
-        return;
-    }
-
-    const QString fileName = fileDialog()->getSaveFileName(
-        this, tr("Export database to HTML file"), QString(), tr("HTML file").append(" (*.html)"), nullptr, nullptr);
-    if (fileName.isEmpty()) {
-        return;
-    }
-
-    HtmlExporter htmlExporter;
-    if (!htmlExporter.exportDatabase(fileName, db)) {
-        emit messageGlobal(tr("Writing the HTML file failed.").append("\n").append(htmlExporter.errorString()),
-                           MessageWidget::Error);
-    }
+    auto exportDialog = new ExportDialog(db, this);
+    connect(exportDialog, SIGNAL(exportFailed(QString)), SLOT(handleExportError(const QString&)));
+    exportDialog->exec();
 }
 
 bool DatabaseTabWidget::warnOnExport()
@@ -491,20 +515,6 @@ void DatabaseTabWidget::showDatabaseSettings()
     currentDatabaseWidget()->switchToDatabaseSettings();
 }
 
-bool DatabaseTabWidget::isReadOnly(int index) const
-{
-    if (count() == 0) {
-        return false;
-    }
-
-    if (index == -1) {
-        index = currentIndex();
-    }
-
-    auto db = databaseWidgetFromIndex(index)->database();
-    return db && db->isReadOnly();
-}
-
 bool DatabaseTabWidget::isModified(int index) const
 {
     if (count() == 0) {
@@ -521,7 +531,7 @@ bool DatabaseTabWidget::isModified(int index) const
 
 bool DatabaseTabWidget::canSave(int index) const
 {
-    return !isReadOnly(index) && isModified(index);
+    return isModified(index);
 }
 
 bool DatabaseTabWidget::hasLockableDatabases() const
@@ -577,10 +587,6 @@ QString DatabaseTabWidget::tabName(int index)
 
     if (dbWidget->isLocked()) {
         tabName = tr("%1 [Locked]", "Database tab name modifier").arg(tabName);
-    }
-
-    if (db->isReadOnly()) {
-        tabName = tr("%1 [Read-only]", "Database tab name modifier").arg(tabName);
     }
 
     if (db->isModified()) {
@@ -664,11 +670,43 @@ void DatabaseTabWidget::unlockDatabaseInDialog(DatabaseWidget* dbWidget,
                                                DatabaseOpenDialog::Intent intent,
                                                const QString& filePath)
 {
-    m_databaseOpenDialog->setTargetDatabaseWidget(dbWidget);
+    m_databaseOpenDialog->clearForms();
     m_databaseOpenDialog->setIntent(intent);
-    m_databaseOpenDialog->setFilePath(filePath);
+    m_databaseOpenDialog->setTarget(dbWidget, filePath);
+    displayUnlockDialog();
+}
 
+/**
+ * Unlock a database with an unlock popup dialog.
+ * The dialog allows the user to select any open & locked database.
+ *
+ * @param intent intent for unlocking
+ */
+void DatabaseTabWidget::unlockAnyDatabaseInDialog(DatabaseOpenDialog::Intent intent)
+{
+    m_databaseOpenDialog->clearForms();
+    m_databaseOpenDialog->setIntent(intent);
+
+    // add a tab to the dialog for each open unlocked database
+    for (int i = 0, c = count(); i < c; ++i) {
+        auto* dbWidget = databaseWidgetFromIndex(i);
+        if (dbWidget && dbWidget->isLocked()) {
+            m_databaseOpenDialog->addDatabaseTab(dbWidget);
+        }
+    }
+    // default to the current tab
+    m_databaseOpenDialog->setActiveDatabaseTab(currentDatabaseWidget());
+    displayUnlockDialog();
+}
+
+/**
+ * Display the unlock dialog after it's been initialized.
+ * This is an internal method, it should only be called by unlockDatabaseInDialog or unlockAnyDatabaseInDialog.
+ */
+void DatabaseTabWidget::displayUnlockDialog()
+{
 #ifdef Q_OS_MACOS
+    auto intent = m_databaseOpenDialog->intent();
     if (intent == DatabaseOpenDialog::Intent::AutoType || intent == DatabaseOpenDialog::Intent::Browser) {
         macUtils()->raiseOwnWindow();
         Tools::wait(200);
@@ -678,6 +716,29 @@ void DatabaseTabWidget::unlockDatabaseInDialog(DatabaseWidget* dbWidget,
     m_databaseOpenDialog->show();
     m_databaseOpenDialog->raise();
     m_databaseOpenDialog->activateWindow();
+}
+
+/**
+ * Actions to take when the unlock dialog has completed.
+ */
+void DatabaseTabWidget::handleDatabaseUnlockDialogFinished(bool accepted, DatabaseWidget* dbWidget)
+{
+    // change the active tab to the database that was just unlocked in the dialog
+    auto intent = m_databaseOpenDialog->intent();
+    if (accepted && intent != DatabaseOpenDialog::Intent::Merge) {
+        int index = indexOf(dbWidget);
+        if (index != -1) {
+            setCurrentIndex(index);
+        }
+    }
+
+    // if unlocked for AutoType, set pending lock flag if needed
+    if (intent == DatabaseOpenDialog::Intent::AutoType && config()->get(Config::Security_RelockAutoType).toBool()) {
+        m_dbWidgetPendingLock = dbWidget;
+    }
+
+    // signal other objects that the dialog finished
+    emit databaseUnlockDialogFinished(accepted, dbWidget);
 }
 
 /**
@@ -735,25 +796,30 @@ void DatabaseTabWidget::emitDatabaseLockChanged()
     }
 }
 
-void DatabaseTabWidget::performGlobalAutoType()
+void DatabaseTabWidget::performGlobalAutoType(const QString& search)
 {
-    QList<QSharedPointer<Database>> unlockedDatabases;
-
-    for (int i = 0, c = count(); i < c; ++i) {
-        auto* dbWidget = databaseWidgetFromIndex(i);
-        if (!dbWidget->isLocked()) {
-            unlockedDatabases.append(dbWidget->database());
+    auto currentDbWidget = currentDatabaseWidget();
+    if (!currentDbWidget) {
+        // No open databases, nothing to do
+        return;
+    } else if (currentDbWidget->isLocked()) {
+        // Current database tab is locked, match behavior of browser unlock - prompt with
+        // the unlock dialog even if there are additional unlocked open database tabs.
+        currentDbWidget->setSearchStringForAutoType(search);
+        unlockAnyDatabaseInDialog(DatabaseOpenDialog::Intent::AutoType);
+    } else {
+        // Current database is unlocked, use it for AutoType along with any other unlocked databases
+        QList<QSharedPointer<Database>> unlockedDatabases;
+        for (int i = 0, c = count(); i < c; ++i) {
+            auto* dbWidget = databaseWidgetFromIndex(i);
+            if (!dbWidget->isLocked()) {
+                dbWidget->setSearchStringForAutoType(search);
+                unlockedDatabases.append(dbWidget->database());
+            }
         }
-    }
 
-    // TODO: allow for database selection during Auto-Type instead of using the current tab
-    if (!unlockedDatabases.isEmpty()) {
-        autoType()->performGlobalAutoType(unlockedDatabases);
-    } else if (count() > 0) {
-        if (config()->get(Config::Security_RelockAutoType).toBool()) {
-            m_dbWidgetPendingLock = currentDatabaseWidget();
-        }
-        unlockDatabaseInDialog(currentDatabaseWidget(), DatabaseOpenDialog::Intent::AutoType);
+        Q_ASSERT(!unlockedDatabases.isEmpty());
+        autoType()->performGlobalAutoType(unlockedDatabases, search);
     }
 }
 
@@ -761,6 +827,6 @@ void DatabaseTabWidget::performBrowserUnlock()
 {
     auto dbWidget = currentDatabaseWidget();
     if (dbWidget && dbWidget->isLocked()) {
-        unlockDatabaseInDialog(dbWidget, DatabaseOpenDialog::Intent::Browser);
+        unlockAnyDatabaseInDialog(DatabaseOpenDialog::Intent::Browser);
     }
 }

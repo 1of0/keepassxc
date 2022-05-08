@@ -16,12 +16,13 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <QScopedPointer>
+#include <QTest>
 
 #include "TestEntry.h"
-#include "TestGlobal.h"
 #include "core/Clock.h"
+#include "core/Group.h"
 #include "core/Metadata.h"
+#include "core/TimeInfo.h"
 #include "crypto/Crypto.h"
 
 QTEST_GUILESS_MAIN(TestEntry)
@@ -613,7 +614,7 @@ void TestEntry::testIsRecycled()
     QVERIFY(entry1->isRecycled());
 }
 
-void TestEntry::testMove()
+void TestEntry::testMoveUpDown()
 {
     Database db;
     Group* root = db.rootGroup();
@@ -722,4 +723,48 @@ void TestEntry::testMove()
     QCOMPARE(root->entries().at(1), entry2);
     QCOMPARE(root->entries().at(2), entry1);
     QCOMPARE(root->entries().at(3), entry0);
+}
+
+void TestEntry::testPreviousParentGroup()
+{
+    Database db;
+    auto* root = db.rootGroup();
+    root->setUuid(QUuid::createUuid());
+    QVERIFY(!root->uuid().isNull());
+
+    auto* group1 = new Group();
+    group1->setUuid(QUuid::createUuid());
+    group1->setParent(root);
+    QVERIFY(!group1->uuid().isNull());
+
+    auto* group2 = new Group();
+    group2->setParent(root);
+    group2->setUuid(QUuid::createUuid());
+    QVERIFY(!group2->uuid().isNull());
+
+    auto* entry = new Entry();
+    QVERIFY(entry);
+    QVERIFY(entry->previousParentGroupUuid().isNull());
+    QVERIFY(!entry->previousParentGroup());
+
+    entry->setGroup(root);
+    QVERIFY(entry->previousParentGroupUuid().isNull());
+    QVERIFY(!entry->previousParentGroup());
+
+    // Previous parent shouldn't be recorded if new and old parent are the same
+    entry->setGroup(root);
+    QVERIFY(entry->previousParentGroupUuid().isNull());
+    QVERIFY(!entry->previousParentGroup());
+
+    entry->setGroup(group1);
+    QVERIFY(entry->previousParentGroupUuid() == root->uuid());
+    QVERIFY(entry->previousParentGroup() == root);
+
+    entry->setGroup(group2);
+    QVERIFY(entry->previousParentGroupUuid() == group1->uuid());
+    QVERIFY(entry->previousParentGroup() == group1);
+
+    entry->setGroup(group2);
+    QVERIFY(entry->previousParentGroupUuid() == group1->uuid());
+    QVERIFY(entry->previousParentGroup() == group1);
 }

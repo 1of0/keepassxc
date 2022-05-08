@@ -21,9 +21,8 @@
 #include <QFile>
 
 #include "core/Endian.h"
-#include "core/Metadata.h"
 #include "format/KeePass2RandomStream.h"
-#include "streams/QtIOCompressor"
+#include "streams/qtiocompressor.h"
 
 /**
  * @param version KDBX version
@@ -132,7 +131,7 @@ void KdbxXmlWriter::writeMetadata()
     if (m_kdbxVersion < KeePass2::FILE_VERSION_4) {
         writeBinaries();
     }
-    writeCustomData(m_meta->customData());
+    writeCustomData(m_meta->customData(), true);
 
     m_xml.writeEndElement();
 }
@@ -162,19 +161,20 @@ void KdbxXmlWriter::writeCustomIcons()
     m_xml.writeEndElement();
 }
 
-void KdbxXmlWriter::writeIcon(const QUuid& uuid, const QImage& icon)
+void KdbxXmlWriter::writeIcon(const QUuid& uuid, const Metadata::CustomIconData& iconData)
 {
     m_xml.writeStartElement("Icon");
 
     writeUuid("UUID", uuid);
-
-    QByteArray ba;
-    QBuffer buffer(&ba);
-    buffer.open(QIODevice::WriteOnly);
-    // TODO: check !icon.save()
-    icon.save(&buffer, "PNG");
-    buffer.close();
-    writeBinary("Data", ba);
+    if (m_kdbxVersion >= KeePass2::FILE_VERSION_4_1) {
+        if (!iconData.name.isEmpty()) {
+            writeString("Name", iconData.name);
+        }
+        if (iconData.lastModified.isValid()) {
+            writeDateTime("LastModificationTime", iconData.lastModified);
+        }
+    }
+    writeBinary("Data", iconData.data);
 
     m_xml.writeEndElement();
 }
@@ -220,7 +220,7 @@ void KdbxXmlWriter::writeBinaries()
     m_xml.writeEndElement();
 }
 
-void KdbxXmlWriter::writeCustomData(const CustomData* customData)
+void KdbxXmlWriter::writeCustomData(const CustomData* customData, bool writeItemLastModified)
 {
     if (customData->isEmpty()) {
         return;
@@ -229,18 +229,23 @@ void KdbxXmlWriter::writeCustomData(const CustomData* customData)
 
     const QList<QString> keyList = customData->keys();
     for (const QString& key : keyList) {
-        writeCustomDataItem(key, customData->value(key));
+        writeCustomDataItem(key, customData->item(key), writeItemLastModified);
     }
 
     m_xml.writeEndElement();
 }
 
-void KdbxXmlWriter::writeCustomDataItem(const QString& key, const QString& value)
+void KdbxXmlWriter::writeCustomDataItem(const QString& key,
+                                        const CustomData::CustomDataItem& item,
+                                        bool writeLastModified)
 {
     m_xml.writeStartElement("Item");
 
     writeString("Key", key);
-    writeString("Value", value);
+    writeString("Value", item.value);
+    if (writeLastModified && m_kdbxVersion >= KeePass2::FILE_VERSION_4_1 && item.lastModified.isValid()) {
+        writeDateTime("LastModificationTime", item.lastModified);
+    }
 
     m_xml.writeEndElement();
 }
@@ -266,6 +271,9 @@ void KdbxXmlWriter::writeGroup(const Group* group)
     writeUuid("UUID", group->uuid());
     writeString("Name", group->name());
     writeString("Notes", group->notes());
+    if (!group->tags().isEmpty()) {
+        writeString("Tags", group->tags());
+    }
     writeNumber("IconID", group->iconNumber());
 
     if (!group->iconUuid().isNull()) {
@@ -283,6 +291,9 @@ void KdbxXmlWriter::writeGroup(const Group* group)
 
     if (m_kdbxVersion >= KeePass2::FILE_VERSION_4) {
         writeCustomData(group->customData());
+    }
+    if (m_kdbxVersion >= KeePass2::FILE_VERSION_4_1 && !group->previousParentGroupUuid().isNull()) {
+        writeUuid("PreviousParentGroup", group->previousParentGroupUuid());
     }
 
     const QList<Entry*>& entryList = group->entries();
@@ -351,6 +362,15 @@ void KdbxXmlWriter::writeEntry(const Entry* entry)
     writeString("OverrideURL", entry->overrideUrl());
     writeString("Tags", entry->tags());
     writeTimes(entry->timeInfo());
+
+    if (m_kdbxVersion >= KeePass2::FILE_VERSION_4_1) {
+        if (entry->excludeFromReports()) {
+            writeBool("QualityCheck", false);
+        }
+        if (!entry->previousParentGroupUuid().isNull()) {
+            writeUuid("PreviousParentGroup", entry->previousParentGroupUuid());
+        }
+    }
 
     const QList<QString> attributesKeyList = entry->attributes()->keys();
     for (const QString& key : attributesKeyList) {

@@ -110,13 +110,25 @@ AutoTypeExtExecutorTest::AutoTypeExtExecutorTest(AutoTypeExtTest* platform)
 {
 }
 
-void AutoTypeExtExecutorTest::execType(AutoTypeKey* action, QSharedPointer<AutoTypeTarget> target)
-{
-    m_platform->addAction(target, action);
-}
-
-void AutoTypeExtExecutorTest::execClearField(AutoTypeClearField* action, QSharedPointer<AutoTypeTarget> target)
+AutoTypeAction::Result AutoTypeExtExecutorTest::execBegin(const AutoTypeBegin* action,
+                                                          QSharedPointer<AutoTypeTarget> target)
 {
     Q_UNUSED(target);
     Q_UNUSED(action);
+    return AutoTypeAction::Result::Ok();
+}
+
+AutoTypeAction::Result AutoTypeExtExecutorTest::execType(const AutoTypeKey* action,
+                                                         QSharedPointer<AutoTypeTarget> target)
+{
+    m_platform->addAction(target, action);
+    return AutoTypeAction::Result::Ok();
+}
+
+AutoTypeAction::Result AutoTypeExtExecutorTest::execClearField(const AutoTypeClearField* action,
+                                                               QSharedPointer<AutoTypeTarget> target)
+{
+    Q_UNUSED(target);
+    Q_UNUSED(action);
+    return AutoTypeAction::Result::Ok();
 }

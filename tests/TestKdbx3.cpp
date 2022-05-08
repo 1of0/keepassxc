@@ -16,7 +16,6 @@
  */
 
 #include "TestKdbx3.h"
-#include "TestGlobal.h"
 
 #include "config-keepassx-tests.h"
 #include "core/Metadata.h"
@@ -26,6 +25,7 @@
 #include "format/KeePass2Reader.h"
 #include "format/KeePass2Writer.h"
 #include "keys/PasswordKey.h"
+#include <QTest>
 
 QTEST_GUILESS_MAIN(TestKdbx3)
 
@@ -75,22 +75,7 @@ void TestKdbx3::readKdbx(QIODevice* device,
     if (hasError) {
         errorString = reader.errorString();
     }
-    QCOMPARE(reader.version(), KeePass2::FILE_VERSION_3_1 & KeePass2::FILE_VERSION_CRITICAL_MASK);
-}
-
-void TestKdbx3::readKdbx(const QString& path,
-                         QSharedPointer<const CompositeKey> key,
-                         QSharedPointer<Database> db,
-                         bool& hasError,
-                         QString& errorString)
-{
-    KeePass2Reader reader;
-    reader.readDatabase(path, key, db.data());
-    hasError = reader.hasError();
-    if (hasError) {
-        errorString = reader.errorString();
-    }
-    QCOMPARE(reader.version(), KeePass2::FILE_VERSION_3_1 & KeePass2::FILE_VERSION_CRITICAL_MASK);
+    QCOMPARE(reader.version(), KeePass2::FILE_VERSION_3_1);
 }
 
 void TestKdbx3::writeKdbx(QIODevice* device, Database* db, bool& hasError, QString& errorString)
@@ -127,7 +112,7 @@ void TestKdbx3::testNonAscii()
     key->addKey(QSharedPointer<PasswordKey>::create(QString::fromUtf8("\xce\x94\xc3\xb6\xd8\xb6")));
     KeePass2Reader reader;
     auto db = QSharedPointer<Database>::create();
-    QVERIFY(db->open(filename, key, nullptr, false));
+    QVERIFY(db->open(filename, key, nullptr));
     QVERIFY(db.data());
     QVERIFY(!reader.hasError());
     QCOMPARE(db->metadata()->name(), QString("NonAsciiTest"));
@@ -141,7 +126,7 @@ void TestKdbx3::testCompressed()
     key->addKey(QSharedPointer<PasswordKey>::create(""));
     KeePass2Reader reader;
     auto db = QSharedPointer<Database>::create();
-    QVERIFY(db->open(filename, key, nullptr, false));
+    QVERIFY(db->open(filename, key, nullptr));
     QVERIFY(db.data());
     QVERIFY(!reader.hasError());
     QCOMPARE(db->metadata()->name(), QString("Compressed"));
@@ -155,7 +140,7 @@ void TestKdbx3::testProtectedStrings()
     key->addKey(QSharedPointer<PasswordKey>::create("masterpw"));
     KeePass2Reader reader;
     auto db = QSharedPointer<Database>::create();
-    QVERIFY(db->open(filename, key, nullptr, false));
+    QVERIFY(db->open(filename, key, nullptr));
     QVERIFY(db.data());
     QVERIFY(!reader.hasError());
     QCOMPARE(db->metadata()->name(), QString("Protected Strings Test"));
@@ -182,5 +167,5 @@ void TestKdbx3::testBrokenHeaderHash()
     auto key = QSharedPointer<CompositeKey>::create();
     key->addKey(QSharedPointer<PasswordKey>::create(""));
     auto db = QSharedPointer<Database>::create();
-    QVERIFY(!db->open(filename, key, nullptr, false));
+    QVERIFY(!db->open(filename, key, nullptr));
 }

@@ -15,16 +15,12 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <cstdlib>
-#include <stdio.h>
-
 #include "List.h"
-#include "cli/Utils.h"
 
-#include "cli/TextStream.h"
-#include "core/Database.h"
-#include "core/Entry.h"
+#include "Utils.h"
 #include "core/Group.h"
+
+#include <QCommandLineParser>
 
 const QCommandLineOption List::RecursiveOption =
     QCommandLineOption(QStringList() << "R"

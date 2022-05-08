@@ -16,14 +16,14 @@
  */
 
 #include "TestEntryModel.h"
-#include "TestGlobal.h"
 
 #include <QSignalSpy>
+#include <QTest>
 
-#include "core/DatabaseIcons.h"
 #include "core/Entry.h"
 #include "core/Group.h"
 #include "crypto/Crypto.h"
+#include "gui/DatabaseIcons.h"
 #include "gui/IconModels.h"
 #include "gui/SortFilterHideProxyModel.h"
 #include "gui/entry/AutoTypeAssociationsModel.h"

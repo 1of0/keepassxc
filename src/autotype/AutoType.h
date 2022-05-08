@@ -19,13 +19,15 @@
 #ifndef KEEPASSX_AUTOTYPE_H
 #define KEEPASSX_AUTOTYPE_H
 
+#include "AutoTypeAction.h"
+
 #include <QMutex>
-#include <QObject>
-#include <QStringList>
+#include <QTimer>
 #include <QWidget>
 
 #include "autotype/AutoTypeExternalPlugin.h"
-#include "autotype/AutoTypeMatch.h"
+#include "AutoTypeAction.h"
+#include "AutoTypeMatch.h"
 
 class AutoTypeAction;
 class AutoTypeExecutor;
@@ -44,8 +46,8 @@ public:
     QStringList windowTitles();
     bool registerGlobalShortcut(Qt::Key key, Qt::KeyboardModifiers modifiers, QString* error = nullptr);
     void unregisterGlobalShortcut();
-    void performAutoType(const Entry* entry, QWidget* hideWindow = nullptr);
-    void performAutoTypeWithSequence(const Entry* entry, const QString& sequence, QWidget* hideWindow = nullptr);
+    void performAutoType(const Entry* entry);
+    void performAutoTypeWithSequence(const Entry* entry, const QString& sequence);
     void performAutoTypeOnExternalPlugin(const Entry* entry,
                                          const QString& pluginName,
                                          QSharedPointer<AutoTypeTarget> target);
@@ -74,16 +76,17 @@ public:
     static void createTestInstance();
 
 public slots:
-    void performGlobalAutoType(const QList<QSharedPointer<Database>>& dbList);
+    void performGlobalAutoType(const QList<QSharedPointer<Database>>& dbList, const QString& search = {});
     void raiseWindow();
 
 signals:
-    void globalAutoTypeTriggered();
+    void globalAutoTypeTriggered(const QString& search);
     void autotypePerformed();
     void autotypeRejected();
+    void autotypeRetypeTimeout();
 
 private slots:
-    void startGlobalAutoType();
+    void startGlobalAutoType(const QString& search);
     void unloadPlugin();
     void unloadExternalPlugin(const QString& name);
 
@@ -100,9 +103,9 @@ private:
     void loadPlugin(const QString& pluginPath);
     void loadExternalPlugin(const QString& name, const QString& pluginPath);
     void executeAutoTypeActions(const Entry* entry,
-                                QWidget* hideWindow = nullptr,
-                                const QString& customSequence = QString(),
-                                WId window = 0);
+                                const QString& sequence = QString(),
+                                WId window = 0,
+                                AutoTypeExecutor::Mode mode = AutoTypeExecutor::Mode::NORMAL);
     void executeAutoTypeActionsOnExternalTarget(const Entry* entry,
                                                 const QString& pluginName,
                                                 QSharedPointer<AutoTypeTarget> target,
@@ -125,6 +128,8 @@ private:
     QString m_windowTitleForGlobal;
     WindowState m_windowState;
     WId m_windowForGlobal;
+    AutoTypeMatch m_lastMatch;
+    QTimer m_lastMatchRetypeTimer;
 
     Q_DISABLE_COPY(AutoType)
 };

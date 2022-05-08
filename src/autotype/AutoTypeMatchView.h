@@ -22,7 +22,8 @@
 #include <QTableView>
 
 #include "autotype/AutoTypeMatch.h"
-#include "autotype/AutoTypeMatchModel.h"
+
+class AutoTypeMatchModel;
 
 class QSortFilterProxyModel;
 
@@ -35,7 +36,10 @@ public:
     AutoTypeMatch currentMatch();
     AutoTypeMatch matchFromIndex(const QModelIndex& index);
     void setMatchList(const QList<AutoTypeMatch>& matches);
+    void selectFirstMatch();
+    bool selectMatch(const AutoTypeMatch& match);
     void filterList(const QString& filter);
+    void moveSelection(int offset);
 
 signals:
     void currentMatchChanged(AutoTypeMatch match);

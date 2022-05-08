@@ -26,7 +26,10 @@
 #include <QWindow>
 
 #include <ApplicationServices/ApplicationServices.h>
+
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1080
 #include <CoreGraphics/CGEventSource.h>
+#endif
 
 #define INVALID_KEYCODE 0xFFFF
 
@@ -70,6 +73,7 @@ bool MacUtils::raiseWindow(WId pid)
 
 bool MacUtils::raiseOwnWindow()
 {
+    m_appkit->toggleForegroundApp(true);
     return m_appkit->activateProcess(m_appkit->ownProcessId());
 }
 
@@ -137,7 +141,11 @@ void MacUtils::setLaunchAtStartup(bool enable)
 
 bool MacUtils::isCapslockEnabled()
 {
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1080
     return (CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState) & kCGEventFlagMaskAlphaShift) != 0;
+#else
+    return false;
+#endif
 }
 
 /**
@@ -358,6 +366,10 @@ uint16 MacUtils::qtToNativeKeyCode(Qt::Key key)
     case Qt::Key_Shift:
         return kVK_Shift;
     case Qt::Key_Control:
+        return kVK_Control;
+    case Qt::Key_Alt:
+        return kVK_Option;
+    case Qt::Key_Meta:
         return kVK_Command;
     case Qt::Key_Backspace:
         return kVK_Delete;

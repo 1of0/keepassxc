@@ -281,7 +281,17 @@ AutoTypeExecutorLibvirt::AutoTypeExecutorLibvirt(AutoTypeExtLibvirt* plugin)
 {
 }
 
-void AutoTypeExecutorLibvirt::execType(AutoTypeKey* action, QSharedPointer<AutoTypeTarget> target)
+AutoTypeAction::Result AutoTypeExecutorLibvirt::execBegin(const AutoTypeBegin* action,
+                                                          QSharedPointer<AutoTypeTarget> target)
+{
+    Q_UNUSED(action);
+    Q_UNUSED(target);
+
+    return AutoTypeAction::Result::Ok();
+}
+
+AutoTypeAction::Result AutoTypeExecutorLibvirt::execType(const AutoTypeKey* action,
+                                                         QSharedPointer<AutoTypeTarget> target)
 {
     auto libvirtTarget = target.staticCast<AutoTypeTargetLibvirt>();
 
@@ -296,14 +306,19 @@ void AutoTypeExecutorLibvirt::execType(AutoTypeKey* action, QSharedPointer<AutoT
     m_plugin->sendKeyCodesToTarget(libvirtTarget, keycodes);
 
     Tools::sleep(execDelayMs);
+
+    return AutoTypeAction::Result::Ok();
 }
 
-void AutoTypeExecutorLibvirt::execClearField(AutoTypeClearField* action, QSharedPointer<AutoTypeTarget> target)
+AutoTypeAction::Result AutoTypeExecutorLibvirt::execClearField(const AutoTypeClearField* action,
+                                                               QSharedPointer<AutoTypeTarget> target)
 {
     Q_UNUSED(action);
     execType(new AutoTypeKey(Qt::Key_Home, Qt::ControlModifier), target);
     execType(new AutoTypeKey(Qt::Key_End, Qt::ControlModifier | Qt::ShiftModifier), target);
     execType(new AutoTypeKey(Qt::Key_Backspace), target);
+
+    return AutoTypeAction::Result::Ok();
 }
 
 AutoTypeTargetLibvirt::AutoTypeTargetLibvirt(QString identifier, QString presentableName, virDomainPtr domain)

@@ -18,17 +18,23 @@
 #ifndef KEEPASSX_ENTRYATTACHMENTS_H
 #define KEEPASSX_ENTRYATTACHMENTS_H
 
+#include "core/FileWatcher.h"
+#include "core/ModifiableObject.h"
+
+#include <QHash>
 #include <QMap>
 #include <QObject>
+#include <QSharedPointer>
 
 class QStringList;
 
-class EntryAttachments : public QObject
+class EntryAttachments : public ModifiableObject
 {
     Q_OBJECT
 
 public:
     explicit EntryAttachments(QObject* parent = nullptr);
+    virtual ~EntryAttachments();
     QList<QString> keys() const;
     bool hasKey(const QString& key) const;
     QSet<QByteArray> values() const;
@@ -43,10 +49,11 @@ public:
     bool operator==(const EntryAttachments& other) const;
     bool operator!=(const EntryAttachments& other) const;
     int attachmentsSize() const;
+    bool openAttachment(const QString& key, QString* errorMessage = nullptr);
 
 signals:
-    void entryAttachmentsModified();
     void keyModified(const QString& key);
+    void valueModifiedExternally(const QString& key, const QString& path);
     void aboutToBeAdded(const QString& key);
     void added(const QString& key);
     void aboutToBeRemoved(const QString& key);
@@ -54,8 +61,16 @@ signals:
     void aboutToBeReset();
     void reset();
 
+private slots:
+    void attachmentFileModified(const QString& path);
+
 private:
+    void disconnectAndEraseExternalFile(const QString& path);
+
     QMap<QString, QByteArray> m_attachments;
+    QHash<QString, QString> m_openedAttachments;
+    QHash<QString, QString> m_openedAttachmentsInverse;
+    QHash<QString, QSharedPointer<FileWatcher>> m_attachmentFileWatchers;
 };
 
 #endif // KEEPASSX_ENTRYATTACHMENTS_H

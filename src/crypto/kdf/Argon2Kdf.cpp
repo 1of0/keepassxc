@@ -17,9 +17,11 @@
 
 #include "Argon2Kdf.h"
 
-#include <QtConcurrent>
+#include <QElapsedTimer>
+#include <QThread>
 
-#include "crypto/argon2/argon2.h"
+#include <argon2.h>
+
 #include "format/KeePass2.h"
 
 /**
@@ -163,33 +165,21 @@ bool Argon2Kdf::transform(const QByteArray& raw, QByteArray& result) const
 {
     result.clear();
     result.resize(32);
-    return transformKeyRaw(raw, seed(), version(), type(), rounds(), memory(), parallelism(), result);
-}
-
-bool Argon2Kdf::transformKeyRaw(const QByteArray& key,
-                                const QByteArray& seed,
-                                quint32 version,
-                                Type type,
-                                quint32 rounds,
-                                quint64 memory,
-                                quint32 parallelism,
-                                QByteArray& result)
-{
     // Time Cost, Mem Cost, Threads/Lanes, Password, length, Salt, length, out, length
 
-    int rc = argon2_hash(rounds,
-                         memory,
-                         parallelism,
-                         key.data(),
-                         key.size(),
-                         seed.data(),
-                         seed.size(),
+    int rc = argon2_hash(rounds(),
+                         memory(),
+                         parallelism(),
+                         raw.data(),
+                         raw.size(),
+                         seed().data(),
+                         seed().size(),
                          result.data(),
                          result.size(),
                          nullptr,
                          0,
-                         type == Type::Argon2d ? Argon2_d : Argon2_id,
-                         version);
+                         type() == Type::Argon2d ? Argon2_d : Argon2_id,
+                         version());
     if (rc != ARGON2_OK) {
         qWarning("Argon2 error: %s", argon2_error_message(rc));
         return false;
@@ -203,17 +193,15 @@ QSharedPointer<Kdf> Argon2Kdf::clone() const
     return QSharedPointer<Argon2Kdf>::create(*this);
 }
 
-int Argon2Kdf::benchmarkImpl(int msec) const
+int Argon2Kdf::benchmark(int msec) const
 {
     QByteArray key = QByteArray(16, '\x7E');
-    QByteArray seed = QByteArray(32, '\x4B');
 
     QElapsedTimer timer;
     timer.start();
 
-    int rounds = 4;
-    if (transformKeyRaw(key, seed, version(), type(), rounds, memory(), parallelism(), key)) {
-        return static_cast<int>(rounds * (static_cast<float>(msec) / timer.elapsed()));
+    if (transform(key, key)) {
+        return static_cast<int>(rounds() * (static_cast<float>(msec) / timer.elapsed()));
     }
 
     return 1;

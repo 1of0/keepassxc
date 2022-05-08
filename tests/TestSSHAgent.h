@@ -18,10 +18,10 @@
 #ifndef TESTSSHAGENT_H
 #define TESTSSHAGENT_H
 
-#include "crypto/ssh/OpenSSHKey.h"
-#include <QObject>
+#include "sshagent/OpenSSHKey.h"
 #include <QProcess>
 #include <QTemporaryFile>
+#include <QUuid>
 
 class TestSSHAgent : public QObject
 {
@@ -34,6 +34,7 @@ private slots:
     void testRemoveOnClose();
     void testLifetimeConstraint();
     void testConfirmConstraint();
+    void testToOpenSSHKey();
     void cleanupTestCase();
 
 private:

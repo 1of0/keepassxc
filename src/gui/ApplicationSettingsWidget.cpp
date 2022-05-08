@@ -19,19 +19,25 @@
 #include "ApplicationSettingsWidget.h"
 #include "ui_ApplicationSettingsWidgetGeneral.h"
 #include "ui_ApplicationSettingsWidgetSecurity.h"
+#include <QDesktopServices>
+#include <QDir>
 
 #include "config-keepassx.h"
 
 #include "autotype/AutoType.h"
-#include "core/Config.h"
-#include "core/Global.h"
 #include "core/Translator.h"
 #include "gui/Icons.h"
 #include "gui/MainWindow.h"
 #include "gui/osutils/OSUtils.h"
 
+#include "FileDialog.h"
 #include "MessageBox.h"
+#ifdef Q_OS_MACOS
 #include "touchid/TouchID.h"
+#endif
+#ifdef Q_CC_MSVC
+#include "winhello/WindowsHello.h"
+#endif
 
 class ApplicationSettingsWidget::ExtraPage
 {
@@ -109,6 +115,16 @@ ApplicationSettingsWidget::ApplicationSettingsWidget(QWidget* parent)
     connect(m_generalUi->systrayShowCheckBox, SIGNAL(toggled(bool)), SLOT(systrayToggled(bool)));
     connect(m_generalUi->rememberLastDatabasesCheckBox, SIGNAL(toggled(bool)), SLOT(rememberDatabasesToggled(bool)));
     connect(m_generalUi->resetSettingsButton, SIGNAL(clicked()), SLOT(resetSettings()));
+    connect(m_generalUi->useAlternativeSaveCheckBox, SIGNAL(toggled(bool)),
+            m_generalUi->alternativeSaveComboBox, SLOT(setEnabled(bool)));
+
+    connect(m_generalUi->backupBeforeSaveCheckBox, SIGNAL(toggled(bool)),
+            m_generalUi->backupFilePath, SLOT(setEnabled(bool)));
+    connect(m_generalUi->backupBeforeSaveCheckBox, SIGNAL(toggled(bool)),
+            m_generalUi->backupFilePathPicker, SLOT(setEnabled(bool)));
+    connect(m_generalUi->backupFilePathPicker, SIGNAL(pressed()), SLOT(selectBackupDirectory()));
+    connect(m_generalUi->showExpiredEntriesOnDatabaseUnlockCheckBox, SIGNAL(toggled(bool)),
+            SLOT(showExpiredEntriesOnDatabaseUnlockToggled(bool)));
 
     connect(m_secUi->clearClipboardCheckBox, SIGNAL(toggled(bool)),
             m_secUi->clearClipboardSpinBox, SLOT(setEnabled(bool)));
@@ -116,8 +132,6 @@ ApplicationSettingsWidget::ApplicationSettingsWidget(QWidget* parent)
             m_secUi->clearSearchSpinBox, SLOT(setEnabled(bool)));
     connect(m_secUi->lockDatabaseIdleCheckBox, SIGNAL(toggled(bool)),
             m_secUi->lockDatabaseIdleSpinBox, SLOT(setEnabled(bool)));
-    connect(m_secUi->touchIDResetCheckBox, SIGNAL(toggled(bool)),
-            m_secUi->touchIDResetSpinBox, SLOT(setEnabled(bool)));
     // clang-format on
 
     // Disable mouse wheel grab when scrolling
@@ -142,16 +156,14 @@ ApplicationSettingsWidget::ApplicationSettingsWidget(QWidget* parent)
     m_generalUi->faviconTimeoutSpinBox->setVisible(false);
 #endif
 
-#ifndef WITH_XC_TOUCHID
-    bool hideTouchID = true;
-#else
-    bool hideTouchID = !TouchID::getInstance().isAvailable();
+    bool showQuickUnlock = false;
+#if defined(Q_OS_MACOS)
+    showQuickUnlock = TouchID::getInstance().isAvailable();
+#elif defined(Q_CC_MSVC)
+    showQuickUnlock = getWindowsHello()->isAvailable();
+    connect(getWindowsHello(), &WindowsHello::availableChanged, m_secUi->quickUnlockCheckBox, &QCheckBox::setVisible);
 #endif
-    if (hideTouchID) {
-        m_secUi->touchIDResetCheckBox->setVisible(false);
-        m_secUi->touchIDResetSpinBox->setVisible(false);
-        m_secUi->touchIDResetOnScreenLockCheckBox->setVisible(false);
-    }
+    m_secUi->quickUnlockCheckBox->setVisible(showQuickUnlock);
 }
 
 ApplicationSettingsWidget::~ApplicationSettingsWidget()
@@ -186,7 +198,11 @@ void ApplicationSettingsWidget::loadSettings()
     m_generalUi->autoSaveOnExitCheckBox->setChecked(config()->get(Config::AutoSaveOnExit).toBool());
     m_generalUi->autoSaveNonDataChangesCheckBox->setChecked(config()->get(Config::AutoSaveNonDataChanges).toBool());
     m_generalUi->backupBeforeSaveCheckBox->setChecked(config()->get(Config::BackupBeforeSave).toBool());
-    m_generalUi->useAtomicSavesCheckBox->setChecked(config()->get(Config::UseAtomicSaves).toBool());
+
+    m_generalUi->backupFilePath->setText(config()->get(Config::BackupFilePathPattern).toString());
+
+    m_generalUi->useAlternativeSaveCheckBox->setChecked(!config()->get(Config::UseAtomicSaves).toBool());
+    m_generalUi->alternativeSaveComboBox->setCurrentIndex(config()->get(Config::UseDirectWriteSaves).toBool() ? 1 : 0);
     m_generalUi->autoReloadOnChangeCheckBox->setChecked(config()->get(Config::AutoReloadOnChange).toBool());
     m_generalUi->minimizeAfterUnlockCheckBox->setChecked(config()->get(Config::MinimizeAfterUnlock).toBool());
     m_generalUi->minimizeOnOpenUrlCheckBox->setChecked(config()->get(Config::MinimizeOnOpenUrl).toBool());
@@ -240,7 +256,14 @@ void ApplicationSettingsWidget::loadSettings()
     m_generalUi->checkForUpdatesIncludeBetasCheckBox->setChecked(
         config()->get(Config::GUI_CheckForUpdatesIncludeBetas).toBool());
 
+    m_generalUi->showExpiredEntriesOnDatabaseUnlockCheckBox->setChecked(
+        config()->get(Config::GUI_ShowExpiredEntriesOnDatabaseUnlock).toBool());
+    m_generalUi->showExpiredEntriesOnDatabaseUnlockOffsetSpinBox->setValue(
+        config()->get(Config::GUI_ShowExpiredEntriesOnDatabaseUnlockOffsetDays).toInt());
+    showExpiredEntriesOnDatabaseUnlockToggled(m_generalUi->showExpiredEntriesOnDatabaseUnlockCheckBox->isChecked());
+
     m_generalUi->autoTypeAskCheckBox->setChecked(config()->get(Config::Security_AutoTypeAsk).toBool());
+    m_generalUi->autoTypeRelockDatabaseCheckBox->setChecked(config()->get(Config::Security_RelockAutoType).toBool());
 
     if (autoType()->isAvailable()) {
         m_globalAutoTypeKey = static_cast<Qt::Key>(config()->get(Config::GlobalAutoTypeKey).toInt());
@@ -249,6 +272,7 @@ void ApplicationSettingsWidget::loadSettings()
         if (m_globalAutoTypeKey > 0 && m_globalAutoTypeModifiers > 0) {
             m_generalUi->autoTypeShortcutWidget->setShortcut(m_globalAutoTypeKey, m_globalAutoTypeModifiers);
         }
+        m_generalUi->autoTypeRetypeTimeSpinBox->setValue(config()->get(Config::GlobalAutoTypeRetypeTime).toInt());
         m_generalUi->autoTypeShortcutWidget->setAttribute(Qt::WA_MacShowFocusRect, true);
         m_generalUi->autoTypeDelaySpinBox->setValue(config()->get(Config::AutoTypeDelay).toInt());
         m_generalUi->autoTypeStartDelaySpinBox->setValue(config()->get(Config::AutoTypeStartDelay).toInt());
@@ -278,7 +302,6 @@ void ApplicationSettingsWidget::loadSettings()
     m_secUi->lockDatabaseMinimizeCheckBox->setChecked(config()->get(Config::Security_LockDatabaseMinimize).toBool());
     m_secUi->lockDatabaseOnScreenLockCheckBox->setChecked(
         config()->get(Config::Security_LockDatabaseScreenLock).toBool());
-    m_secUi->relockDatabaseAutoTypeCheckBox->setChecked(config()->get(Config::Security_RelockAutoType).toBool());
     m_secUi->fallbackToSearch->setChecked(config()->get(Config::Security_IconDownloadFallback).toBool());
 
     m_secUi->passwordsHiddenCheckBox->setChecked(config()->get(Config::Security_PasswordsHidden).toBool());
@@ -290,11 +313,10 @@ void ApplicationSettingsWidget::loadSettings()
     m_secUi->hideNotesCheckBox->setChecked(config()->get(Config::Security_HideNotes).toBool());
     m_secUi->NoConfirmMoveEntryToRecycleBinCheckBox->setChecked(
         config()->get(Config::Security_NoConfirmMoveEntryToRecycleBin).toBool());
+    m_secUi->EnableCopyOnDoubleClickCheckBox->setChecked(
+        config()->get(Config::Security_EnableCopyOnDoubleClick).toBool());
 
-    m_secUi->touchIDResetCheckBox->setChecked(config()->get(Config::Security_ResetTouchId).toBool());
-    m_secUi->touchIDResetSpinBox->setValue(config()->get(Config::Security_ResetTouchIdTimeout).toInt());
-    m_secUi->touchIDResetOnScreenLockCheckBox->setChecked(
-        config()->get(Config::Security_ResetTouchIdScreenlock).toBool());
+    m_secUi->quickUnlockCheckBox->setChecked(config()->get(Config::Security_QuickUnlock).toBool());
 
     for (const ExtraPage& page : asConst(m_extraPages)) {
         page.loadSettings();
@@ -325,7 +347,11 @@ void ApplicationSettingsWidget::saveSettings()
     config()->set(Config::AutoSaveOnExit, m_generalUi->autoSaveOnExitCheckBox->isChecked());
     config()->set(Config::AutoSaveNonDataChanges, m_generalUi->autoSaveNonDataChangesCheckBox->isChecked());
     config()->set(Config::BackupBeforeSave, m_generalUi->backupBeforeSaveCheckBox->isChecked());
-    config()->set(Config::UseAtomicSaves, m_generalUi->useAtomicSavesCheckBox->isChecked());
+
+    config()->set(Config::BackupFilePathPattern, m_generalUi->backupFilePath->text());
+
+    config()->set(Config::UseAtomicSaves, !m_generalUi->useAlternativeSaveCheckBox->isChecked());
+    config()->set(Config::UseDirectWriteSaves, m_generalUi->alternativeSaveComboBox->currentIndex() == 1);
     config()->set(Config::AutoReloadOnChange, m_generalUi->autoReloadOnChangeCheckBox->isChecked());
     config()->set(Config::MinimizeAfterUnlock, m_generalUi->minimizeAfterUnlockCheckBox->isChecked());
     config()->set(Config::MinimizeOnOpenUrl, m_generalUi->minimizeOnOpenUrlCheckBox->isChecked());
@@ -364,12 +390,19 @@ void ApplicationSettingsWidget::saveSettings()
     config()->set(Config::GUI_CheckForUpdatesIncludeBetas,
                   m_generalUi->checkForUpdatesIncludeBetasCheckBox->isChecked());
 
+    config()->set(Config::GUI_ShowExpiredEntriesOnDatabaseUnlock,
+                  m_generalUi->showExpiredEntriesOnDatabaseUnlockCheckBox->isChecked());
+    config()->set(Config::GUI_ShowExpiredEntriesOnDatabaseUnlockOffsetDays,
+                  m_generalUi->showExpiredEntriesOnDatabaseUnlockOffsetSpinBox->value());
+
     config()->set(Config::Security_AutoTypeAsk, m_generalUi->autoTypeAskCheckBox->isChecked());
+    config()->set(Config::Security_RelockAutoType, m_generalUi->autoTypeRelockDatabaseCheckBox->isChecked());
 
     if (autoType()->isAvailable()) {
         config()->set(Config::GlobalAutoTypeKey, m_generalUi->autoTypeShortcutWidget->key());
         config()->set(Config::GlobalAutoTypeModifiers,
                       static_cast<int>(m_generalUi->autoTypeShortcutWidget->modifiers()));
+        config()->set(Config::GlobalAutoTypeRetypeTime, m_generalUi->autoTypeRetypeTimeSpinBox->value());
         config()->set(Config::AutoTypeDelay, m_generalUi->autoTypeDelaySpinBox->value());
         config()->set(Config::AutoTypeStartDelay, m_generalUi->autoTypeStartDelaySpinBox->value());
     }
@@ -383,7 +416,6 @@ void ApplicationSettingsWidget::saveSettings()
     config()->set(Config::Security_LockDatabaseIdleSeconds, m_secUi->lockDatabaseIdleSpinBox->value());
     config()->set(Config::Security_LockDatabaseMinimize, m_secUi->lockDatabaseMinimizeCheckBox->isChecked());
     config()->set(Config::Security_LockDatabaseScreenLock, m_secUi->lockDatabaseOnScreenLockCheckBox->isChecked());
-    config()->set(Config::Security_RelockAutoType, m_secUi->relockDatabaseAutoTypeCheckBox->isChecked());
     config()->set(Config::Security_IconDownloadFallback, m_secUi->fallbackToSearch->isChecked());
 
     config()->set(Config::Security_PasswordsHidden, m_secUi->passwordsHiddenCheckBox->isChecked());
@@ -394,22 +426,21 @@ void ApplicationSettingsWidget::saveSettings()
     config()->set(Config::Security_HideNotes, m_secUi->hideNotesCheckBox->isChecked());
     config()->set(Config::Security_NoConfirmMoveEntryToRecycleBin,
                   m_secUi->NoConfirmMoveEntryToRecycleBinCheckBox->isChecked());
+    config()->set(Config::Security_EnableCopyOnDoubleClick, m_secUi->EnableCopyOnDoubleClickCheckBox->isChecked());
 
-    config()->set(Config::Security_ResetTouchId, m_secUi->touchIDResetCheckBox->isChecked());
-    config()->set(Config::Security_ResetTouchIdTimeout, m_secUi->touchIDResetSpinBox->value());
-    config()->set(Config::Security_ResetTouchIdScreenlock, m_secUi->touchIDResetOnScreenLockCheckBox->isChecked());
+    config()->set(Config::Security_QuickUnlock, m_secUi->quickUnlockCheckBox->isChecked());
 
     // Security: clear storage if related settings are disabled
     if (!config()->get(Config::RememberLastDatabases).toBool()) {
+        config()->remove(Config::LastDir);
         config()->remove(Config::LastDatabases);
         config()->remove(Config::LastActiveDatabase);
-        config()->remove(Config::LastAttachmentDir);
     }
 
     if (!config()->get(Config::RememberLastKeyFiles).toBool()) {
+        config()->remove(Config::LastDir);
         config()->remove(Config::LastKeyFiles);
         config()->remove(Config::LastChallengeResponse);
-        config()->remove(Config::LastDir);
     }
 
     for (const ExtraPage& page : asConst(m_extraPages)) {
@@ -442,7 +473,6 @@ void ApplicationSettingsWidget::resetSettings()
     // Clear recently used data
     config()->remove(Config::LastDatabases);
     config()->remove(Config::LastActiveDatabase);
-    config()->remove(Config::LastAttachmentDir);
     config()->remove(Config::LastKeyFiles);
     config()->remove(Config::LastDir);
 
@@ -504,4 +534,19 @@ void ApplicationSettingsWidget::rememberDatabasesToggled(bool checked)
 void ApplicationSettingsWidget::checkUpdatesToggled(bool checked)
 {
     m_generalUi->checkForUpdatesIncludeBetasCheckBox->setEnabled(checked);
+}
+
+void ApplicationSettingsWidget::showExpiredEntriesOnDatabaseUnlockToggled(bool checked)
+{
+    m_generalUi->showExpiredEntriesOnDatabaseUnlockOffsetSpinBox->setEnabled(checked);
+}
+
+void ApplicationSettingsWidget::selectBackupDirectory()
+{
+    auto backupDirectory =
+        FileDialog::instance()->getExistingDirectory(this, tr("Select backup storage directory"), QDir::homePath());
+    if (!backupDirectory.isEmpty()) {
+        m_generalUi->backupFilePath->setText(
+            QDir(backupDirectory).filePath(config()->getDefault(Config::BackupFilePathPattern).toString()));
+    }
 }

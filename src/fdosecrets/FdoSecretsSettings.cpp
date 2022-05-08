@@ -18,7 +18,6 @@
 #include "FdoSecretsSettings.h"
 
 #include "core/Config.h"
-#include "core/CustomData.h"
 #include "core/Database.h"
 #include "core/Metadata.h"
 
@@ -82,6 +81,16 @@ namespace FdoSecrets
     void FdoSecretsSettings::setConfirmAccessItem(bool confirmAccessItem)
     {
         config()->set(Config::FdoSecrets_ConfirmAccessItem, confirmAccessItem);
+    }
+
+    bool FdoSecretsSettings::unlockBeforeSearch() const
+    {
+        return config()->get(Config::FdoSecrets_UnlockBeforeSearch).toBool();
+    }
+
+    void FdoSecretsSettings::setUnlockBeforeSearch(bool unlockBeforeSearch)
+    {
+        config()->set(Config::FdoSecrets_UnlockBeforeSearch, unlockBeforeSearch);
     }
 
     QUuid FdoSecretsSettings::exposedGroup(const QSharedPointer<Database>& db) const

@@ -18,12 +18,10 @@
 #include "GroupView.h"
 
 #include <QDragMoveEvent>
-#include <QMetaObject>
 #include <QMimeData>
 #include <QShortcut>
 
 #include "core/Config.h"
-#include "core/Database.h"
 #include "core/Group.h"
 #include "gui/group/GroupModel.h"
 
@@ -47,19 +45,19 @@ GroupView::GroupView(Database* db, QWidget* parent)
 
     new QShortcut(Qt::CTRL + Qt::Key_F10, this, SLOT(contextMenuShortcutPressed()), nullptr, Qt::WidgetShortcut);
 
+    // keyboard shortcuts to sort children of a group
+    auto shortcut = new QShortcut(Qt::CTRL + Qt::Key_Down, this);
+    connect(shortcut, &QShortcut::activated, this, [this]() { sortGroups(false); });
+
+    shortcut = new QShortcut(Qt::CTRL + Qt::Key_Up, this);
+    connect(shortcut, &QShortcut::activated, this, [this]() { sortGroups(true); });
+
     modelReset();
 
     setDragEnabled(true);
     viewport()->setAcceptDrops(true);
     setDropIndicatorShown(true);
     setDefaultDropAction(Qt::MoveAction);
-    setVisible(!config()->get(Config::GUI_HideGroupsPanel).toBool());
-
-    connect(config(), &Config::changed, this, [this](Config::ConfigKey key) {
-        if (key == Config::GUI_HideGroupsPanel) {
-            setVisible(!config()->get(Config::GUI_HideGroupsPanel).toBool());
-        }
-    });
 }
 
 void GroupView::contextMenuShortcutPressed()

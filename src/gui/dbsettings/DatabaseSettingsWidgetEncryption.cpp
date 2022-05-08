@@ -24,10 +24,8 @@
 #include "core/Metadata.h"
 #include "crypto/kdf/Argon2Kdf.h"
 #include "format/KeePass2.h"
+#include "format/KeePass2Writer.h"
 #include "gui/MessageBox.h"
-
-#include <QApplication>
-#include <QPushButton>
 
 const char* DatabaseSettingsWidgetEncryption::CD_DECRYPTION_TIME_PREFERENCE_KEY = "KPXC_DECRYPTION_TIME_PREFERENCE";
 
@@ -39,12 +37,13 @@ DatabaseSettingsWidgetEncryption::DatabaseSettingsWidgetEncryption(QWidget* pare
 
     connect(m_ui->transformBenchmarkButton, SIGNAL(clicked()), SLOT(benchmarkTransformRounds()));
     connect(m_ui->kdfComboBox, SIGNAL(currentIndexChanged(int)), SLOT(changeKdf(int)));
+    m_ui->formatCannotBeChanged->setVisible(false);
 
     connect(m_ui->memorySpinBox, SIGNAL(valueChanged(int)), this, SLOT(memoryChanged(int)));
     connect(m_ui->parallelismSpinBox, SIGNAL(valueChanged(int)), this, SLOT(parallelismChanged(int)));
 
-    m_ui->compatibilitySelection->addItem(tr("KDBX 4.0 (recommended)"), KeePass2::KDF_ARGON2D.toByteArray());
-    m_ui->compatibilitySelection->addItem(tr("KDBX 3.1"), KeePass2::KDF_AES_KDBX3.toByteArray());
+    m_ui->compatibilitySelection->addItem(tr("KDBX 4 (recommended)"), KeePass2::KDF_ARGON2D.toByteArray());
+    m_ui->compatibilitySelection->addItem(tr("KDBX 3"), KeePass2::KDF_AES_KDBX3.toByteArray());
     m_ui->decryptionTimeSlider->setMinimum(Kdf::MIN_ENCRYPTION_TIME / 100);
     m_ui->decryptionTimeSlider->setMaximum(Kdf::MAX_ENCRYPTION_TIME / 100);
     m_ui->decryptionTimeSlider->setValue(Kdf::DEFAULT_ENCRYPTION_TIME / 100);
@@ -96,6 +95,7 @@ void DatabaseSettingsWidgetEncryption::initialize()
         m_db->setCipher(KeePass2::CIPHER_AES256);
         isDirty = true;
     }
+    bool kdbx3Enabled = KeePass2Writer::kdbxVersionRequired(m_db.data(), true, true) <= KeePass2::FILE_VERSION_3_1;
 
     // check if the DB's custom data has a decryption time setting stored
     // and set the slider to it, otherwise just state that the time is unchanged
@@ -118,8 +118,13 @@ void DatabaseSettingsWidgetEncryption::initialize()
 
     updateFormatCompatibility(m_db->kdf()->uuid() == KeePass2::KDF_AES_KDBX3 ? KDBX3 : KDBX4, isDirty);
     setupAlgorithmComboBox();
-    setupKdfComboBox();
+    setupKdfComboBox(kdbx3Enabled);
     loadKdfParameters();
+
+    if (!kdbx3Enabled) {
+        m_ui->compatibilitySelection->setEnabled(false);
+        m_ui->formatCannotBeChanged->setVisible(true);
+    }
 
     m_isDirty = isDirty;
 }
@@ -146,13 +151,15 @@ void DatabaseSettingsWidgetEncryption::setupAlgorithmComboBox()
     }
 }
 
-void DatabaseSettingsWidgetEncryption::setupKdfComboBox()
+void DatabaseSettingsWidgetEncryption::setupKdfComboBox(bool enableKdbx3)
 {
-    // Setup kdf combo box
+    // Set up kdf combo box
     bool block = m_ui->kdfComboBox->blockSignals(true);
     m_ui->kdfComboBox->clear();
     for (auto& kdf : asConst(KeePass2::KDFS)) {
-        m_ui->kdfComboBox->addItem(kdf.second.toUtf8(), kdf.first.toByteArray());
+        if (kdf.first != KeePass2::KDF_AES_KDBX3 or enableKdbx3) {
+            m_ui->kdfComboBox->addItem(kdf.second.toUtf8(), kdf.first.toByteArray());
+        }
     }
     m_ui->kdfComboBox->blockSignals(block);
 }
@@ -318,6 +325,8 @@ void DatabaseSettingsWidgetEncryption::benchmarkTransformRounds(int millisecs)
     kdf->setRounds(m_ui->transformRoundsSpinBox->value());
     if (IS_ARGON2(kdf->uuid())) {
         auto argon2Kdf = kdf.staticCast<Argon2Kdf>();
+        // Set a small static number of rounds for the benchmark
+        argon2Kdf->setRounds(4);
         if (!argon2Kdf->setMemory(static_cast<quint64>(m_ui->memorySpinBox->value()) * (1 << 10))) {
             m_ui->memorySpinBox->setValue(static_cast<int>(argon2Kdf->memory() / (1 << 10)));
         }
@@ -396,8 +405,8 @@ void DatabaseSettingsWidgetEncryption::updateFormatCompatibility(int index, bool
         m_ui->compatibilitySelection->blockSignals(block);
     }
 
+    QUuid kdfUuid(m_ui->compatibilitySelection->itemData(index).toByteArray());
     if (retransform) {
-        QUuid kdfUuid(m_ui->compatibilitySelection->itemData(index).toByteArray());
         auto kdf = KeePass2::uuidToKdf(kdfUuid);
         m_db->setKdf(kdf);
 

@@ -19,16 +19,13 @@
 #define KEEPASSX_KDBXXMLWRITER_H
 
 #include <QDateTime>
-#include <QImage>
 #include <QXmlStreamWriter>
 
-#include "core/Database.h"
-#include "core/Entry.h"
+#include "core/CustomData.h"
 #include "core/Group.h"
-#include "core/TimeInfo.h"
+#include "core/Metadata.h"
 
 class KeePass2RandomStream;
-class Metadata;
 
 class KdbxXmlWriter
 {
@@ -51,10 +48,11 @@ private:
     void writeMetadata();
     void writeMemoryProtection();
     void writeCustomIcons();
-    void writeIcon(const QUuid& uuid, const QImage& icon);
+    void writeIcon(const QUuid& uuid, const Metadata::CustomIconData& iconData);
     void writeBinaries();
-    void writeCustomData(const CustomData* customData);
-    void writeCustomDataItem(const QString& key, const QString& value);
+    void writeCustomData(const CustomData* customData, bool writeItemLastModified = false);
+    void
+    writeCustomDataItem(const QString& key, const CustomData::CustomDataItem& item, bool writeLastModified = false);
     void writeRoot();
     void writeGroup(const Group* group);
     void writeTimes(const TimeInfo& ti);

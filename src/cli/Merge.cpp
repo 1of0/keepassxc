@@ -15,14 +15,12 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <cstdlib>
-
 #include "Merge.h"
 
-#include "cli/TextStream.h"
-#include "cli/Utils.h"
-#include "core/Database.h"
+#include "Utils.h"
 #include "core/Merger.h"
+
+#include <QCommandLineParser>
 
 const QCommandLineOption Merge::SameCredentialsOption =
     QCommandLineOption(QStringList() << "s"
@@ -82,7 +80,7 @@ int Merge::executeWithDatabase(QSharedPointer<Database> database, QSharedPointer
     } else {
         db2 = QSharedPointer<Database>::create();
         QString errorMessage;
-        if (!db2->open(fromDatabasePath, database->key(), &errorMessage, false)) {
+        if (!db2->open(fromDatabasePath, database->key(), &errorMessage)) {
             err << QObject::tr("Error reading merge file:\n%1").arg(errorMessage);
             return EXIT_FAILURE;
         }
@@ -97,7 +95,7 @@ int Merge::executeWithDatabase(QSharedPointer<Database> database, QSharedPointer
 
     if (!changeList.isEmpty() && !parser->isSet(Merge::DryRunOption)) {
         QString errorMessage;
-        if (!database->save(&errorMessage, true, false)) {
+        if (!database->save(Database::Atomic, {}, &errorMessage)) {
             err << QObject::tr("Unable to save database to file : %1").arg(errorMessage) << endl;
             return EXIT_FAILURE;
         }

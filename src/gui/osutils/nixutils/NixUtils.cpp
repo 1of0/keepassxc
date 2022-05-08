@@ -16,19 +16,15 @@
  */
 
 #include "NixUtils.h"
-#include "KeySymMap.h"
-#include "core/Tools.h"
 
 #include <QApplication>
-#include <QColor>
+#include <QDBusInterface>
 #include <QDir>
-#include <QFile>
-#include <QGuiApplication>
-#include <QPalette>
+#include <QPointer>
 #include <QStandardPaths>
 #include <QStyle>
 #include <QTextStream>
-#include <QtX11Extras/QX11Info>
+#include <QX11Info>
 
 #include <qpa/qplatformnativeinterface.h>
 
@@ -65,6 +61,15 @@ NixUtils::NixUtils(QObject* parent)
 {
     dpy = QX11Info::display();
     rootWindow = QX11Info::appRootWindow();
+
+    // notify about system color scheme changes
+    QDBusConnection sessionBus = QDBusConnection::sessionBus();
+    sessionBus.connect("org.freedesktop.portal.Desktop",
+                       "/org/freedesktop/portal/desktop",
+                       "org.freedesktop.portal.Settings",
+                       "SettingChanged",
+                       this,
+                       SLOT(handleColorSchemeChanged(QString, QString, QDBusVariant)));
 }
 
 NixUtils::~NixUtils()
@@ -73,6 +78,11 @@ NixUtils::~NixUtils()
 
 bool NixUtils::isDarkMode() const
 {
+    // prefer freedesktop "org.freedesktop.appearance color-scheme" setting
+    if (m_systemColorschemePref != ColorschemePref::PreferNone) {
+        return m_systemColorschemePref == ColorschemePref::PreferDark;
+    }
+
     if (!qApp || !qApp->style()) {
         return false;
     }
@@ -184,25 +194,6 @@ bool NixUtils::nativeEventFilter(const QByteArray& eventType, void* message, lon
         auto* keyPressEvent = static_cast<xcb_key_press_event_t*>(message);
         auto modifierMask = ControlMask | ShiftMask | Mod1Mask | Mod4Mask;
         return triggerGlobalShortcut(keyPressEvent->detail, keyPressEvent->state & modifierMask);
-    } else if (type == XCB_MAPPING_NOTIFY) {
-        auto* mappingNotifyEvent = static_cast<xcb_mapping_notify_event_t*>(message);
-        if (mappingNotifyEvent->request == XCB_MAPPING_KEYBOARD
-            || mappingNotifyEvent->request == XCB_MAPPING_MODIFIER) {
-            XMappingEvent xMappingEvent;
-            memset(&xMappingEvent, 0, sizeof(xMappingEvent));
-            xMappingEvent.type = MappingNotify;
-            xMappingEvent.display = dpy;
-            if (mappingNotifyEvent->request == XCB_MAPPING_KEYBOARD) {
-                xMappingEvent.request = MappingKeyboard;
-            } else {
-                xMappingEvent.request = MappingModifier;
-            }
-            xMappingEvent.first_keycode = mappingNotifyEvent->first_keycode;
-            xMappingEvent.count = mappingNotifyEvent->count;
-            XRefreshKeyboardMapping(&xMappingEvent);
-            // Notify listeners that the keymap has changed
-            emit keymapChanged();
-        }
     }
 
     return false;
@@ -280,4 +271,12 @@ bool NixUtils::unregisterGlobalShortcut(const QString& name)
 
     m_globalShortcuts.remove(name);
     return true;
+}
+
+void NixUtils::handleColorSchemeChanged(QString ns, QString key, QDBusVariant value)
+{
+    if (ns == "org.freedesktop.appearance" && key == "color-scheme") {
+        m_systemColorschemePref = static_cast<ColorschemePref>(value.variant().toInt());
+        emit interfaceThemeChanged();
+    }
 }

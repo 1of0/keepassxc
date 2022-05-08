@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 KeePassXC Team <team@keepassxc.org>
+ * Copyright (C) 2021 KeePassXC Team <team@keepassxc.org>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,7 +21,6 @@
 #include "DatabaseOpenDialog.h"
 #include "gui/MessageWidget.h"
 
-#include <QPointer>
 #include <QTabWidget>
 
 class Database;
@@ -42,12 +41,12 @@ public:
     DatabaseWidget* currentDatabaseWidget();
     DatabaseWidget* databaseWidgetFromIndex(int index) const;
 
-    bool isReadOnly(int index = -1) const;
     bool canSave(int index = -1) const;
     bool isModified(int index = -1) const;
     bool hasLockableDatabases() const;
 
 public slots:
+    void lockAndSwitchToFirstUnlockedDatabase(int index = -1);
     void addDatabaseTab(const QString& filePath,
                         bool inBackground = false,
                         const QString& password = {},
@@ -81,7 +80,7 @@ public slots:
     void showDatabaseSecurity();
     void showDatabaseReports();
     void showDatabaseSettings();
-    void performGlobalAutoType();
+    void performGlobalAutoType(const QString& search);
     void performBrowserUnlock();
 
 signals:
@@ -100,11 +99,15 @@ private slots:
     void toggleTabbar();
     void emitActiveDatabaseChanged();
     void emitDatabaseLockChanged();
+    void handleDatabaseUnlockDialogFinished(bool accepted, DatabaseWidget* dbWidget);
+    void handleExportError(const QString& reason);
 
 private:
     QSharedPointer<Database> execNewDatabaseWizard();
     void updateLastDatabases(const QString& filename);
     bool warnOnExport();
+    void unlockAnyDatabaseInDialog(DatabaseOpenDialog::Intent intent);
+    void displayUnlockDialog();
 
     QPointer<DatabaseWidgetStateSync> m_dbWidgetStateSync;
     QPointer<DatabaseWidget> m_dbWidgetPendingLock;

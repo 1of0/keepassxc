@@ -15,19 +15,15 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <cstdlib>
-#include <stdio.h>
-
 #include "Edit.h"
 
-#include "cli/Add.h"
-#include "cli/Generate.h"
-#include "cli/TextStream.h"
-#include "cli/Utils.h"
-#include "core/Database.h"
-#include "core/Entry.h"
+#include "Add.h"
+#include "Generate.h"
+#include "Utils.h"
 #include "core/Group.h"
 #include "core/PasswordGenerator.h"
+
+#include <QCommandLineParser>
 
 const QCommandLineOption Edit::TitleOption = QCommandLineOption(QStringList() << "t"
                                                                               << "title",
@@ -57,6 +53,7 @@ Edit::Edit()
     options.append(Generate::ExcludeCharsOption);
     options.append(Generate::ExcludeSimilarCharsOption);
     options.append(Generate::IncludeEveryGroupOption);
+    options.append(Generate::CustomCharacterSetOption);
 }
 
 int Edit::executeWithDatabase(QSharedPointer<Database> database, QSharedPointer<QCommandLineParser> parser)
@@ -130,7 +127,7 @@ int Edit::executeWithDatabase(QSharedPointer<Database> database, QSharedPointer<
     entry->endUpdate();
 
     QString errorMessage;
-    if (!database->save(&errorMessage, true, false)) {
+    if (!database->save(Database::Atomic, {}, &errorMessage)) {
         err << QObject::tr("Writing the database failed: %1").arg(errorMessage) << endl;
         return EXIT_FAILURE;
     }

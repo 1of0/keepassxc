@@ -17,6 +17,9 @@ set(cli_SOURCES
         Add.cpp
         AddGroup.cpp
         Analyze.cpp
+        AttachmentExport.cpp
+        AttachmentImport.cpp
+        AttachmentRemove.cpp
         Clip.cpp
         Close.cpp
         Create.cpp
@@ -32,52 +35,48 @@ set(cli_SOURCES
         Import.cpp
         Info.cpp
         List.cpp
-        Locate.cpp
         Merge.cpp
         Move.cpp
         Open.cpp
         Remove.cpp
         RemoveGroup.cpp
+        Search.cpp
         Show.cpp)
 
 add_library(cli STATIC ${cli_SOURCES})
-target_link_libraries(cli Qt5::Core Qt5::Widgets)
+target_link_libraries(cli Qt5::Core)
 
 find_package(Readline)
 
 if (READLINE_FOUND)
     target_compile_definitions(cli PUBLIC USE_READLINE)
-    target_link_libraries(cli readline)
+    target_link_libraries(cli ${Readline_LIBRARY})
 endif()
 
 add_executable(keepassxc-cli keepassxc-cli.cpp)
 target_link_libraries(keepassxc-cli
         ${GPGERROR_LIBRARIES}
         cli
-        keepassx_core
-        Qt5::Core
-        ${GCRYPT_LIBRARIES}
-        ${sodium_LIBRARY_RELEASE}
-        ${ARGON2_LIBRARIES}
-        ${ZLIB_LIBRARIES}
-        ${ZXCVBN_LIBRARIES})
+        keepassx_core)
 
 install(TARGETS keepassxc-cli
         BUNDLE DESTINATION . COMPONENT Runtime
         RUNTIME DESTINATION ${CLI_INSTALL_DIR} COMPONENT Runtime)
 
-if(MINGW)
-    install(CODE "include(BundleUtilities)
-                  fixup_bundle(\"\${CMAKE_INSTALL_PREFIX}/keepassxc-cli.exe\" \"\" \"\")"
-            COMPONENT Runtime)
+if(WIN32)
+#    install(CODE "include(BundleUtilities)
+#                  fixup_bundle(\"\${CMAKE_INSTALL_PREFIX}/keepassxc-cli.exe\" \"\" \"\")"
+#            COMPONENT Runtime)
 endif()
 
 if(APPLE AND WITH_APP_BUNDLE)
     set(CLI_APP_DIR "${CMAKE_BINARY_DIR}/src/${CLI_INSTALL_DIR}")
+
     add_custom_command(TARGET keepassxc-cli
             POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/keepassxc-cli ${CLI_APP_DIR}/keepassxc-cli
-            COMMAND ${MACDEPLOYQT_EXE} ${PROGNAME}.app -executable=${CLI_APP_DIR}/keepassxc-cli -no-plugins 2> /dev/null
             WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/src
-            COMMENT "Deploying keepassxc-cli")
+            COMMENT "Copying keepassxc-cli into app bundle")
+    set_property(GLOBAL APPEND PROPERTY
+        _MACDEPLOYQT_EXTRA_BINARIES "${CLI_INSTALL_DIR}/keepassxc-cli")
 endif()

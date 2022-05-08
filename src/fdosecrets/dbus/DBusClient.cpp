@@ -22,20 +22,59 @@
 #include "fdosecrets/dbus/DBusMgr.h"
 #include "fdosecrets/objects/SessionCipher.h"
 
+#include <utility>
+
 namespace FdoSecrets
 {
-    DBusClient::DBusClient(DBusMgr* dbus, const QString& address, uint pid, const QString& name)
-        : m_dbus(dbus)
-        , m_address(address)
-        , m_pid(pid)
-        , m_name(name)
+    bool ProcInfo::operator==(const ProcInfo& other) const
     {
+        return this->pid == other.pid && this->ppid == other.ppid && this->exePath == other.exePath
+               && this->name == other.name && this->command == other.command;
+    }
+
+    bool ProcInfo::operator!=(const ProcInfo& other) const
+    {
+        return !(*this == other);
+    }
+
+    bool PeerInfo::operator==(const PeerInfo& other) const
+    {
+        return this->address == other.address && this->pid == other.pid && this->valid == other.valid
+               && this->hierarchy == other.hierarchy;
+    }
+
+    bool PeerInfo::operator!=(const PeerInfo& other) const
+    {
+        return !(*this == other);
+    }
+
+    DBusClient::DBusClient(DBusMgr* dbus, PeerInfo process)
+        : m_dbus(dbus)
+        , m_process(std::move(process))
+    {
+    }
+
+    DBusMgr* DBusClient::dbus() const
+    {
+        return m_dbus;
+    }
+
+    QString DBusClient::name() const
+    {
+        auto exePath = m_process.exePath();
+        if (exePath.isEmpty()) {
+            return QObject::tr("unknown executable (DBus address %1)").arg(m_process.address);
+        }
+        if (!m_process.valid) {
+            return QObject::tr("%1 (invalid executable path)").arg(exePath);
+        }
+        return exePath;
     }
 
     bool DBusClient::itemKnown(const QUuid& uuid) const
     {
-        return m_authorizedAll || m_allowed.contains(uuid) || m_allowedOnce.contains(uuid) || m_denied.contains(uuid)
-               || m_deniedOnce.contains(uuid);
+        return m_authorizedAll != AuthDecision::Undecided || m_allowed.contains(uuid) || m_allowedOnce.contains(uuid)
+               || m_denied.contains(uuid) || m_deniedOnce.contains(uuid);
     }
 
     bool DBusClient::itemAuthorized(const QUuid& uuid) const
@@ -44,10 +83,16 @@ namespace FdoSecrets
             // everyone is authorized if this is not enabled
             return true;
         }
-        if (m_authorizedAll) {
-            // this client is trusted
+
+        // check if we have catch-all decision
+        if (m_authorizedAll == AuthDecision::Allowed) {
             return true;
         }
+        if (m_authorizedAll == AuthDecision::Denied) {
+            return false;
+        }
+
+        // individual decisions
         if (m_deniedOnce.contains(uuid) || m_denied.contains(uuid)) {
             // explicitly denied
             return false;
@@ -93,14 +138,21 @@ namespace FdoSecrets
         }
     }
 
-    void DBusClient::setAllAuthorized(bool authorized)
+    void DBusClient::setAllAuthorized(AuthDecision authorized)
     {
+        // once variants doesn't make sense here
+        if (authorized == AuthDecision::AllowedOnce) {
+            authorized = AuthDecision::Allowed;
+        }
+        if (authorized == AuthDecision::DeniedOnce) {
+            authorized = AuthDecision::Denied;
+        }
         m_authorizedAll = authorized;
     }
 
     void DBusClient::clearAuthorization()
     {
-        m_authorizedAll = false;
+        m_authorizedAll = AuthDecision::Undecided;
         m_allowed.clear();
         m_allowedOnce.clear();
         m_denied.clear();

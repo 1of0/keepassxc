@@ -17,9 +17,6 @@
 
 #include "Merger.h"
 
-#include "core/Clock.h"
-#include "core/Database.h"
-#include "core/Entry.h"
 #include "core/Metadata.h"
 
 Merger::Merger(const Database* sourceDb, Database* targetDb)
@@ -68,8 +65,6 @@ QStringList Merger::merge()
     changes << mergeGroup(m_context);
     changes << mergeDeletions(m_context);
     changes << mergeMetadata(m_context);
-
-    // qDebug("Merged %s", qPrintable(changes.join("\n\t")));
 
     // At this point we have a list of changes we may want to show the user
     if (!changes.isEmpty()) {
@@ -614,15 +609,14 @@ Merger::ChangeList Merger::mergeMetadata(const MergeContext& context)
 
     for (const auto& iconUuid : sourceMetadata->customIconsOrder()) {
         if (!targetMetadata->hasCustomIcon(iconUuid)) {
-            QImage customIcon = sourceMetadata->customIcon(iconUuid);
-            targetMetadata->addCustomIcon(iconUuid, customIcon);
+            targetMetadata->addCustomIcon(iconUuid, sourceMetadata->customIcon(iconUuid));
             changes << tr("Adding missing icon %1").arg(QString::fromLatin1(iconUuid.toRfc4122().toHex()));
         }
     }
 
     // Merge Custom Data if source is newer
-    const auto targetCustomDataModificationTime = targetMetadata->customData()->getLastModified();
-    const auto sourceCustomDataModificationTime = sourceMetadata->customData()->getLastModified();
+    const auto targetCustomDataModificationTime = targetMetadata->customData()->lastModified();
+    const auto sourceCustomDataModificationTime = sourceMetadata->customData()->lastModified();
     if (!targetMetadata->customData()->contains(CustomData::LastModified)
         || (targetCustomDataModificationTime.isValid() && sourceCustomDataModificationTime.isValid()
             && targetCustomDataModificationTime < sourceCustomDataModificationTime)) {
@@ -632,8 +626,7 @@ Merger::ChangeList Merger::mergeMetadata(const MergeContext& context)
         // Check missing keys from source. Remove those from target
         for (const auto& key : targetCustomDataKeys) {
             // Do not remove protected custom data
-            if (!sourceMetadata->customData()->contains(key)
-                && !sourceMetadata->customData()->isProtectedCustomData(key)) {
+            if (!sourceMetadata->customData()->contains(key) && !sourceMetadata->customData()->isProtected(key)) {
                 auto value = targetMetadata->customData()->value(key);
                 targetMetadata->customData()->remove(key);
                 changes << tr("Removed custom data %1 [%2]").arg(key, value);

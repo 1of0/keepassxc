@@ -16,7 +16,6 @@
  */
 
 #include "TestMerge.h"
-#include "TestGlobal.h"
 #include "mock/MockClock.h"
 
 #include "core/Merger.h"
@@ -24,6 +23,7 @@
 #include "crypto/Crypto.h"
 
 #include <QSignalSpy>
+#include <QTest>
 
 QTEST_GUILESS_MAIN(TestMerge)
 
@@ -998,8 +998,7 @@ void TestMerge::testUpdateGroup()
     groupSourceInitial->setName("group2 renamed");
     groupSourceInitial->setNotes("updated notes");
     QUuid customIconId = QUuid::createUuid();
-    QImage customIcon;
-    dbSource->metadata()->addCustomIcon(customIconId, customIcon);
+    dbSource->metadata()->addCustomIcon(customIconId, QString("custom icon").toLocal8Bit());
     groupSourceInitial->setIcon(customIconId);
 
     QPointer<Entry> entrySourceInitial = dbSource->rootGroup()->findEntryByPath("entry1");
@@ -1113,9 +1112,8 @@ void TestMerge::testMergeCustomIcons()
     m_clock->advanceSecond(1);
 
     QUuid customIconId = QUuid::createUuid();
-    QImage customIcon;
 
-    dbSource->metadata()->addCustomIcon(customIconId, customIcon);
+    dbSource->metadata()->addCustomIcon(customIconId, QString("custom icon").toLocal8Bit());
     // Sanity check.
     QVERIFY(dbSource->metadata()->hasCustomIcon(customIconId));
 
@@ -1138,10 +1136,12 @@ void TestMerge::testMergeDuplicateCustomIcons()
     m_clock->advanceSecond(1);
 
     QUuid customIconId = QUuid::createUuid();
-    QImage customIcon;
 
-    dbSource->metadata()->addCustomIcon(customIconId, customIcon);
-    dbDestination->metadata()->addCustomIcon(customIconId, customIcon);
+    QByteArray customIcon1("custom icon 1");
+    QByteArray customIcon2("custom icon 2");
+
+    dbSource->metadata()->addCustomIcon(customIconId, customIcon1);
+    dbDestination->metadata()->addCustomIcon(customIconId, customIcon2);
     // Sanity check.
     QVERIFY(dbSource->metadata()->hasCustomIcon(customIconId));
     QVERIFY(dbDestination->metadata()->hasCustomIcon(customIconId));
@@ -1153,6 +1153,7 @@ void TestMerge::testMergeDuplicateCustomIcons()
 
     QVERIFY(dbDestination->metadata()->hasCustomIcon(customIconId));
     QCOMPARE(dbDestination->metadata()->customIconsOrder().count(), 1);
+    QCOMPARE(dbDestination->metadata()->customIcon(customIconId).data, customIcon2);
 }
 
 void TestMerge::testMetadata()
@@ -1479,7 +1480,7 @@ void TestMerge::testMergeNotModified()
     QScopedPointer<Database> dbSource(
         createTestDatabaseStructureClone(dbDestination.data(), Entry::CloneNoFlags, Group::CloneIncludeEntries));
 
-    QSignalSpy modifiedSignalSpy(dbDestination.data(), SIGNAL(databaseModified()));
+    QSignalSpy modifiedSignalSpy(dbDestination.data(), SIGNAL(modified()));
     Merger merger(dbSource.data(), dbDestination.data());
     merger.merge();
     QTRY_VERIFY(modifiedSignalSpy.empty());
@@ -1491,7 +1492,7 @@ void TestMerge::testMergeModified()
     QScopedPointer<Database> dbSource(
         createTestDatabaseStructureClone(dbDestination.data(), Entry::CloneNoFlags, Group::CloneIncludeEntries));
 
-    QSignalSpy modifiedSignalSpy(dbDestination.data(), SIGNAL(databaseModified()));
+    QSignalSpy modifiedSignalSpy(dbDestination.data(), SIGNAL(modified()));
     // Make sure the two changes have a different timestamp.
     QTest::qSleep(1);
     Entry* entry = dbSource->rootGroup()->findEntryByPath("entry1");

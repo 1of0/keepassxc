@@ -17,6 +17,7 @@
 cmake_minimum_required(VERSION 3.3.0)
 
 project(KeePassXC)
+set(APP_ID "org.keepassxc.${PROJECT_NAME}")
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING
@@ -24,12 +25,16 @@ if(NOT CMAKE_BUILD_TYPE)
             FORCE)
 endif()
 string(TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWER)
+if(CMAKE_BUILD_TYPE_LOWER STREQUAL "debug" OR CMAKE_BUILD_TYPE_LOWER STREQUAL "relwithdebinfo")
+    set(IS_DEBUG_BUILD TRUE)
+endif()
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 # Support Visual Studio Code
 include(CMakeToolsHelpers OPTIONAL)
 include(FeatureSummary)
+include(KPXCMacDeployHelpers)
 
 include(CheckCCompilerFlag)
 include(CheckCXXCompilerFlag)
@@ -51,13 +56,10 @@ option(WITH_XC_NETWORKING "Include networking code (e.g. for downloading website
 option(WITH_XC_BROWSER "Include browser integration with keepassxc-browser." OFF)
 option(WITH_XC_YUBIKEY "Include YubiKey support." OFF)
 option(WITH_XC_SSHAGENT "Include SSH agent support." OFF)
-option(WITH_XC_KEESHARE "Sharing integration with KeeShare (requires quazip5 for secure containers)" OFF)
+option(WITH_XC_KEESHARE "Sharing integration with KeeShare" OFF)
 option(WITH_XC_UPDATECHECK "Include automatic update checks; disable for controlled distributions" ON)
 if(UNIX AND NOT APPLE)
     option(WITH_XC_FDOSECRETS "Implement freedesktop.org Secret Storage Spec server side API." OFF)
-endif()
-if(APPLE)
-    option(WITH_XC_TOUCHID "Include TouchID support for macOS." OFF)
 endif()
 option(WITH_XC_DOCS "Enable building of documentation" ON)
 
@@ -80,18 +82,9 @@ if(WITH_XC_ALL)
     set(WITH_XC_YUBIKEY ON)
     set(WITH_XC_SSHAGENT ON)
     set(WITH_XC_KEESHARE ON)
-    if(APPLE)
-        set(WITH_XC_TOUCHID ON)
-    endif()
     if(UNIX AND NOT APPLE)
         set(WITH_XC_FDOSECRETS ON)
     endif()
-endif()
-
-if(WITH_XC_SSHAGENT OR WITH_XC_KEESHARE)
-  set(WITH_XC_CRYPTO_SSH ON)
-else()
-  set(WITH_XC_CRYPTO_SSH OFF)
 endif()
 
 # Prefer WITH_XC_NETWORKING setting over WITH_XC_UPDATECHECK
@@ -102,7 +95,7 @@ endif()
 
 set(KEEPASSXC_VERSION_MAJOR "2")
 set(KEEPASSXC_VERSION_MINOR "7")
-set(KEEPASSXC_VERSION_PATCH "0")
+set(KEEPASSXC_VERSION_PATCH "1")
 set(KEEPASSXC_VERSION "${KEEPASSXC_VERSION_MAJOR}.${KEEPASSXC_VERSION_MINOR}.${KEEPASSXC_VERSION_PATCH}")
 set(OVERRIDE_VERSION "" CACHE STRING "Override the KeePassXC Version for Snapshot builds")
 
@@ -128,7 +121,8 @@ execute_process(COMMAND git tag --points-at HEAD
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         OUTPUT_VARIABLE GIT_TAG
         ERROR_QUIET)
-if(GIT_TAG)
+string(REGEX REPLACE "latest" "" GIT_TAG "${GIT_TAG}")
+if(GIT_TAG MATCHES "[0-9]+\.[0-9]+\.[0-9]+")
     string(STRIP "${GIT_TAG}" GIT_TAG)
     set(OVERRIDE_VERSION ${GIT_TAG})
 elseif(EXISTS ${CMAKE_SOURCE_DIR}/.version)
@@ -137,14 +131,14 @@ endif()
 
 string(REGEX REPLACE "(\r?\n)+" "" OVERRIDE_VERSION "${OVERRIDE_VERSION}")
 if(OVERRIDE_VERSION)
-    if(OVERRIDE_VERSION MATCHES "^[\\.0-9]+-(alpha|beta)[0-9]+$")
-        set(KEEPASSXC_BUILD_TYPE PreRelease)
+    if(OVERRIDE_VERSION MATCHES "^[\\.0-9]+-beta[0-9]*")
+        set(KEEPASSXC_BUILD_TYPE "PreRelease")
         set(KEEPASSXC_VERSION ${OVERRIDE_VERSION})
     elseif(OVERRIDE_VERSION MATCHES "^[\\.0-9]+$")
-        set(KEEPASSXC_BUILD_TYPE Release)
+        set(KEEPASSXC_BUILD_TYPE "Release")
         set(KEEPASSXC_VERSION ${OVERRIDE_VERSION})
     else()
-        set(KEEPASSXC_BUILD_TYPE Snapshot)
+        set(KEEPASSXC_BUILD_TYPE "Snapshot")
         set(KEEPASSXC_VERSION ${OVERRIDE_VERSION})
     endif()
 else()
@@ -168,14 +162,25 @@ message(STATUS "Setting up build for KeePassXC v${KEEPASSXC_VERSION}\n")
 # Distribution info
 set(KEEPASSXC_DIST ON)
 set(KEEPASSXC_DIST_TYPE "Other" CACHE STRING "KeePassXC Distribution Type")
-set_property(CACHE KEEPASSXC_DIST_TYPE PROPERTY STRINGS Snap AppImage Other)
+set_property(CACHE KEEPASSXC_DIST_TYPE PROPERTY STRINGS Snap AppImage Flatpak Other)
 if(KEEPASSXC_DIST_TYPE STREQUAL "Snap")
     set(KEEPASSXC_DIST_SNAP ON)
 elseif(KEEPASSXC_DIST_TYPE STREQUAL "AppImage")
     set(KEEPASSXC_DIST_APPIMAGE ON)
+elseif(KEEPASSXC_DIST_TYPE STREQUAL "Flatpak")
+    set(KEEPASSXC_DIST_FLATPAK ON)
 elseif(KEEPASSXC_DIST_TYPE STREQUAL "Other")
     unset(KEEPASSXC_DIST)
 endif()
+
+if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.14.0")
+    cmake_policy(SET CMP0083 NEW)
+    include(CheckPIESupported)
+    check_pie_supported()
+endif()
+
+# Create position independent code for shared libraries and executables
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 if("${CMAKE_SIZEOF_VOID_P}" EQUAL "4")
     set(IS_32BIT TRUE)
@@ -246,12 +251,20 @@ macro(check_add_gcc_compiler_flag FLAG)
 endmacro(check_add_gcc_compiler_flag)
 
 add_definitions(-DQT_NO_EXCEPTIONS -DQT_STRICT_ITERATORS -DQT_NO_CAST_TO_ASCII)
+if(NOT IS_DEBUG_BUILD)
+    add_definitions(-DQT_NO_DEBUG_OUTPUT)
+endif()
 
 if(WITH_APP_BUNDLE)
     add_definitions(-DWITH_APP_BUNDLE)
 endif()
 
 add_gcc_compiler_flags("-fno-common")
+find_package(OpenMP)
+if(OpenMP_FOUND)
+    add_gcc_compiler_cflags(${OpenMP_C_FLAGS})
+    add_gcc_compiler_cxxflags(${OpenMP_CXX_FLAGS})
+endif()
 add_gcc_compiler_flags("-Wall -Wextra -Wundef -Wpointer-arith -Wno-long-long")
 add_gcc_compiler_flags("-Wformat=2 -Wmissing-format-attribute")
 add_gcc_compiler_flags("-fvisibility=hidden")
@@ -264,14 +277,13 @@ if(CMAKE_BUILD_TYPE_LOWER STREQUAL "debug")
 endif()
 
 if (NOT HAIKU)
-if((CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 4.8.999) OR CMAKE_COMPILER_IS_CLANGXX)
-    add_gcc_compiler_flags("-fstack-protector-strong")
-else()
-    add_gcc_compiler_flags("-fstack-protector --param=ssp-buffer-size=4")
-endif()
+    if((CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 4.8.999) OR CMAKE_COMPILER_IS_CLANGXX)
+        add_gcc_compiler_flags("-fstack-protector-strong")
+    else()
+        add_gcc_compiler_flags("-fstack-protector --param=ssp-buffer-size=4")
+    endif()
 endif()
 
-add_gcc_compiler_cxxflags("-fno-exceptions -fno-rtti")
 add_gcc_compiler_cxxflags("-Wnon-virtual-dtor -Wold-style-cast -Woverloaded-virtual")
 add_gcc_compiler_cflags("-Wchar-subscripts -Wwrite-strings")
 
@@ -298,63 +310,86 @@ check_add_gcc_compiler_flag("-Werror=format-security")
 check_add_gcc_compiler_flag("-Werror=implicit-function-declaration" C)
 check_add_gcc_compiler_flag("-Wcast-align")
 
-if(WITH_COVERAGE AND CMAKE_COMPILER_IS_CLANGXX)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
-  # then:
-  # $ llvm-profdata merge -sparse default.profraw -o default.profdata
-  # $ llvm-cov show ./tests/${the_test_binary} \
-  #      -format=html -instr-profile=default.profdata -output-dir=./coverages \
-  #      `find src -iname '*.h' -or -iname '*.cpp'`
-endif()
-
 if(UNIX AND NOT APPLE)
     check_add_gcc_compiler_flag("-Qunused-arguments")
-    check_add_gcc_compiler_flag("-fPIC")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--no-add-needed -Wl,--as-needed -Wl,--no-undefined")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,relro,-z,now -pie")
     set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,--no-add-needed -Wl,--as-needed")
     set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,-z,relro,-z,now")
 endif()
 
-add_gcc_compiler_cflags("-std=c99")
-add_gcc_compiler_cxxflags("-std=c++11")
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-check_add_gcc_compiler_flag("-fsized-deallocation" CXX)
+check_cxx_compiler_flag("-fsized-deallocation" CXX_HAS_fsized_deallocation)
+if(CXX_HAS_fsized_deallocation)
+    # Do additional check: the deallocation functions must be there too.
+    set(CMAKE_REQUIRED_FLAGS "-fsized-deallocation")
+    check_cxx_source_compiles("#include <new>
+        int main() { void * ptr = nullptr; std::size_t size = 1; ::operator delete(ptr, size); }"
+        HAVE_DEALLOCATION_FUNCTIONS)
+    if(HAVE_DEALLOCATION_FUNCTIONS)
+        check_add_gcc_compiler_flag("-fsized-deallocation" CXX)
+    endif()
+    unset(CMAKE_REQUIRED_FLAGS)
+endif()
 
 if(APPLE AND CMAKE_COMPILER_IS_CLANGXX)
     add_gcc_compiler_cxxflags("-stdlib=libc++")
 endif()
 
 if(WITH_DEV_BUILD)
-    add_definitions(-DQT_DEPRECATED_WARNINGS -DGCRYPT_NO_DEPRECATED)
+    add_definitions(-DQT_DEPRECATED_WARNINGS)
 else()
     add_definitions(-DQT_NO_DEPRECATED_WARNINGS)
     add_gcc_compiler_cxxflags("-Wno-deprecated-declarations")
 endif()
 
-if(MINGW)
-    set(CMAKE_RC_COMPILER_INIT windres)
-    enable_language(RC)
-    set(CMAKE_RC_COMPILE_OBJECT "<CMAKE_RC_COMPILER> <FLAGS> -O coff <DEFINES> -i <SOURCE> -o <OBJECT>")
-    if(NOT (CMAKE_BUILD_TYPE_LOWER STREQUAL "debug" OR CMAKE_BUILD_TYPE_LOWER STREQUAL "relwithdebinfo"))
-        # Enable DEP and ASLR
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--nxcompat -Wl,--dynamicbase")
-        set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,--nxcompat -Wl,--dynamicbase")
-        # Enable high entropy ASLR for 64-bit builds
-        if(NOT IS_32BIT)
-            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--high-entropy-va")
-            set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,--high-entropy-va")
+# MSVC specific options
+if (MSVC)
+    if(MSVC_TOOLSET_VERSION LESS 141)
+        message(FATAL_ERROR "Only Microsoft Visual Studio 17 and newer are supported!")
+    endif()
+    add_compile_options(/permissive- /utf-8)
+    if(IS_DEBUG_BUILD)
+        add_compile_options(/Zf)
+        if(MSVC_TOOLSET_VERSION GREATER 141)
+            add_compile_definitions(/fsanitize=address)
         endif()
     endif()
 endif()
 
-if(APPLE AND WITH_APP_BUNDLE OR MINGW)
+if(WIN32)
+    set(CMAKE_RC_COMPILER_INIT windres)
+    enable_language(RC)
+    if(MINGW)
+        set(CMAKE_RC_COMPILE_OBJECT "<CMAKE_RC_COMPILER> <FLAGS> -O coff <DEFINES> -i <SOURCE> -o <OBJECT>")
+    endif()
+    if(NOT IS_DEBUG_BUILD)
+        if(MSVC)
+            # By default MSVC enables NXCOMPAT
+            add_compile_options(/guard:cf)
+            add_link_options(/DYNAMICBASE /HIGHENTROPYVA /GUARD:CF)
+        else(MINGW)
+            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--nxcompat -Wl,--dynamicbase")
+            set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,--nxcompat -Wl,--dynamicbase")
+            # Enable high entropy ASLR for 64-bit builds
+            if(NOT IS_32BIT)
+                set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--high-entropy-va")
+                set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,--high-entropy-va")
+            endif()
+        endif()
+    endif()
+endif()
+
+if(APPLE AND WITH_APP_BUNDLE OR WIN32)
     set(PROGNAME KeePassXC)
 else()
     set(PROGNAME keepassxc)
 endif()
 
-if(MINGW)
+if(WIN32)
     set(CLI_INSTALL_DIR ".")
     set(PROXY_INSTALL_DIR ".")
     set(BIN_INSTALL_DIR ".")
@@ -385,16 +420,29 @@ endif(WITH_TESTS)
 if(WITH_COVERAGE)
     # Include code coverage, use with -DCMAKE_BUILD_TYPE=Debug
     include(CodeCoverage)
-    set(COVERAGE_GCOVR_EXCLUDES
-            "\\(.+/\\)?tests/.\\*"
-            ".\\*/moc_\\[^/\\]+\\.cpp"
-            ".\\*/ui_\\[^/\\]+\\.h"
-            "\\(.+/\\)?zxcvbn/.\\*")
     append_coverage_compiler_flags()
-    setup_target_for_coverage_gcovr_html(
-            NAME coverage
-            EXECUTABLE $(MAKE) && $(MAKE) test
-    )
+
+    set(COVERAGE_EXCLUDES
+            "'^(.+/)?(thirdparty|zxcvbn)/.*'"
+            "'^(.+/)?main\\.cpp$$'"
+            "'^(.+/)?cli/keepassxc-cli\\.cpp$$'"
+            "'^(.+/)?proxy/keepassxc-proxy\\.cpp$$'")
+    if(WITH_COVERAGE AND CMAKE_COMPILER_IS_CLANGXX)
+        set(MAIN_BINARIES
+                "$<TARGET_FILE:${PROGNAME}>"
+                "$<TARGET_FILE:keepassxc-cli>"
+                "$<TARGET_FILE:keepassxc-proxy>")
+        setup_target_for_coverage_llvm(
+                NAME coverage
+                BINARY ${MAIN_BINARIES}
+                SOURCES_ROOT ${CMAKE_SOURCE_DIR}/src
+        )
+    else()
+        setup_target_for_coverage_gcovr(
+                NAME coverage
+                SOURCES_ROOT ${CMAKE_SOURCE_DIR}/src
+        )
+    endif()
 endif()
 
 include(CLangFormat)
@@ -432,43 +480,45 @@ set(CMAKE_AUTORCC ON)
 
 if(APPLE)
     set(CMAKE_MACOSX_RPATH TRUE)
-    find_program(MACDEPLOYQT_EXE macdeployqt HINTS ${Qt5_PREFIX}/bin ENV PATH)
+    find_program(MACDEPLOYQT_EXE macdeployqt HINTS ${Qt5_PREFIX}/bin ${Qt5_PREFIX}/tools/qt5/bin ENV PATH)
     if(NOT MACDEPLOYQT_EXE)
         message(FATAL_ERROR "macdeployqt is required to build on macOS")
     endif()
     message(STATUS "Using macdeployqt: ${MACDEPLOYQT_EXE}")
-elseif(MINGW)
-    find_program(WINDEPLOYQT_EXE windeployqt HINTS ${Qt5_PREFIX}/bin ENV PATH)
+    set(MACDEPLOYQT_EXTRA_BINARIES "")
+elseif(WIN32)
+    find_program(WINDEPLOYQT_EXE windeployqt HINTS ${Qt5_PREFIX}/bin ${Qt5_PREFIX}/tools/qt5/bin ENV PATH)
     if(NOT WINDEPLOYQT_EXE)
         message(FATAL_ERROR "windeployqt is required to build on Windows")
     endif()
     message(STATUS "Using windeployqt: ${WINDEPLOYQT_EXE}")
 endif()
 
-# Debian sets the the build type to None for package builds.
+# Debian sets the build type to None for package builds.
 # Make sure we don't enable asserts there.
 set_property(DIRECTORY APPEND PROPERTY COMPILE_DEFINITIONS_NONE QT_NO_DEBUG)
 
-find_package(LibGPGError REQUIRED)
-find_package(Gcrypt 1.7.0 REQUIRED)
-find_package(Argon2 REQUIRED)
+# Find Botan2
+find_package(Botan2 REQUIRED)
+if(BOTAN2_VERSION VERSION_LESS "2.11.0")
+    message(FATAL_ERROR "Botan2 2.11.0 or higher is required")
+endif()
+include_directories(SYSTEM ${BOTAN2_INCLUDE_DIR})
+# Find Argon2 -- Botan 2.18 and below does not support threaded Argon2
+find_library(ARGON2_LIBRARIES NAMES argon2)
+find_path(ARGON2_INCLUDE_DIR NAMES argon2.h PATH_SUFFIXES local/include)
+include_directories(SYSTEM ${ARGON2_INCLUDE_DIR})
+
+# Find zlib
 find_package(ZLIB REQUIRED)
-find_package(QREncode REQUIRED)
-find_package(sodium 1.0.12 REQUIRED)
-
-set(CMAKE_REQUIRED_INCLUDES ${ZLIB_INCLUDE_DIR})
-
 if(ZLIB_VERSION_STRING VERSION_LESS "1.2.0")
     message(FATAL_ERROR "zlib 1.2.0 or higher is required to use the gzip format")
 endif()
+include_directories(SYSTEM ${ZLIB_INCLUDE_DIR})
 
-include_directories(SYSTEM ${ARGON2_INCLUDE_DIR} ${sodium_INCLUDE_DIR})
-
-# Optional
 if(WITH_XC_YUBIKEY)
-    find_package(YubiKey REQUIRED)
-
-    include_directories(SYSTEM ${YUBIKEY_INCLUDE_DIRS})
+    find_package(PCSC REQUIRED)
+    include_directories(SYSTEM ${PCSC_INCLUDE_DIRS})
 endif()
 
 if(UNIX)
@@ -481,7 +531,7 @@ if(UNIX)
             HAVE_MALLOC_H)
 
     check_cxx_source_compiles("#include <malloc.h>
-    int main() { malloc_usable_size(NULL, 0); return 0; }"
+    int main() { malloc_usable_size(NULL); return 0; }"
             HAVE_MALLOC_USABLE_SIZE)
 
     check_cxx_source_compiles("#include <sys/resource.h>
@@ -501,7 +551,7 @@ if(UNIX)
     endif()
 endif()
 
-include_directories(SYSTEM ${GCRYPT_INCLUDE_DIR} ${ZLIB_INCLUDE_DIR})
+include_directories(SYSTEM ${ZLIB_INCLUDE_DIR})
 
 add_subdirectory(src)
 add_subdirectory(share)

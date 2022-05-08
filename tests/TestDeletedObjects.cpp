@@ -16,12 +16,13 @@
  */
 
 #include "TestDeletedObjects.h"
-#include "TestGlobal.h"
 
 #include "config-keepassx-tests.h"
+#include "core/Group.h"
 #include "crypto/Crypto.h"
 #include "format/KdbxXmlReader.h"
 #include "format/KeePass2.h"
+#include <QTest>
 
 QTEST_GUILESS_MAIN(TestDeletedObjects)
 
@@ -150,4 +151,16 @@ void TestDeletedObjects::testDatabaseChange()
     QCOMPARE(db2->deletedObjects().size(), delObjectsSize2);
 
     delete group;
+}
+
+void TestDeletedObjects::testCustomIconDeletion()
+{
+    Database db;
+    QCOMPARE(db.deletedObjects().size(), 0);
+
+    QUuid uuid = QUuid::createUuid();
+    db.metadata()->addCustomIcon(uuid, QByteArray());
+    db.metadata()->removeCustomIcon(uuid);
+    QCOMPARE(db.deletedObjects().size(), 1);
+    QCOMPARE(db.deletedObjects().at(0).uuid, uuid);
 }

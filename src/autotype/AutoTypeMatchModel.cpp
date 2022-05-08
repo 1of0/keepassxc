@@ -20,11 +20,12 @@
 
 #include <QFont>
 
-#include "core/DatabaseIcons.h"
 #include "core/Entry.h"
 #include "core/Global.h"
 #include "core/Group.h"
 #include "core/Metadata.h"
+#include "gui/DatabaseIcons.h"
+#include "gui/Icons.h"
 
 AutoTypeMatchModel::AutoTypeMatchModel(QObject* parent)
     : QAbstractTableModel(parent)
@@ -42,6 +43,24 @@ QModelIndex AutoTypeMatchModel::indexFromMatch(const AutoTypeMatch& match) const
     int row = m_matches.indexOf(match);
     Q_ASSERT(row != -1);
     return index(row, 1);
+}
+
+QModelIndex AutoTypeMatchModel::closestIndexFromMatch(const AutoTypeMatch& match) const
+{
+    int row = -1;
+
+    for (int i = m_matches.size() - 1; i >= 0; --i) {
+        const auto& currentMatch = m_matches.at(i);
+        if (currentMatch.first == match.first) {
+            row = i;
+
+            if (currentMatch.second == match.second) {
+                break;
+            }
+        }
+    }
+
+    return (row > -1) ? index(row, 1) : QModelIndex();
 }
 
 void AutoTypeMatchModel::setMatchList(const QList<AutoTypeMatch>& matches)
@@ -117,11 +136,11 @@ QVariant AutoTypeMatchModel::data(const QModelIndex& index, int role) const
         switch (index.column()) {
         case ParentGroup:
             if (match.first->group()) {
-                return match.first->group()->iconPixmap();
+                return Icons::groupIconPixmap(match.first->group());
             }
             break;
         case Title:
-            return match.first->iconPixmap();
+            return Icons::entryIconPixmap(match.first);
         }
     } else if (role == Qt::FontRole) {
         QFont font;

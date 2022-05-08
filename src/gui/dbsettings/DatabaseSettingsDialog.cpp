@@ -26,10 +26,10 @@
 #include "DatabaseSettingsWidgetBrowser.h"
 #endif
 #include "DatabaseSettingsWidgetMaintenance.h"
-#if defined(WITH_XC_KEESHARE)
+#ifdef WITH_XC_KEESHARE
 #include "keeshare/DatabaseSettingsPageKeeShare.h"
 #endif
-#if defined(WITH_XC_FDOSECRETS)
+#ifdef WITH_XC_FDOSECRETS
 #include "fdosecrets/DatabaseSettingsPageFdoSecrets.h"
 #endif
 
@@ -37,7 +37,6 @@
 #include "core/Database.h"
 #include "core/Global.h"
 #include "gui/Icons.h"
-#include "touchid/TouchID.h"
 
 #include <QScrollArea>
 
@@ -181,10 +180,6 @@ void DatabaseSettingsDialog::save()
     for (const ExtraPage& extraPage : asConst(m_extraPages)) {
         extraPage.saveSettings();
     }
-
-#ifdef WITH_XC_TOUCHID
-    TouchID::getInstance().reset(m_db ? m_db->filePath() : "");
-#endif
 
     emit editFinished(true);
 }

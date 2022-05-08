@@ -96,7 +96,7 @@ EntryView::EntryView(QWidget* parent)
     // column index as data
     m_columnActions = new QActionGroup(this);
     m_columnActions->setExclusive(false);
-    for (int visualIndex = 1; visualIndex < header()->count(); ++visualIndex) {
+    for (int visualIndex = 0; visualIndex < header()->count(); ++visualIndex) {
         int logicalIndex = header()->logicalIndex(visualIndex);
         QString caption = m_model->headerData(logicalIndex, Qt::Horizontal, Qt::DisplayRole).toString();
         if (caption.isEmpty()) {
@@ -200,12 +200,6 @@ void EntryView::focusInEvent(QFocusEvent* event)
     QTreeView::focusInEvent(event);
 }
 
-void EntryView::focusOutEvent(QFocusEvent* event)
-{
-    emit entrySelectionChanged(nullptr);
-    QTreeView::focusOutEvent(event);
-}
-
 void EntryView::displayGroup(Group* group)
 {
     m_model->setGroup(group);
@@ -287,6 +281,11 @@ Entry* EntryView::entryFromIndex(const QModelIndex& index)
     } else {
         return nullptr;
     }
+}
+
+QModelIndex EntryView::indexFromEntry(Entry* entry)
+{
+    return m_sortModel->mapFromSource(m_model->indexFromEntry(entry));
 }
 
 int EntryView::currentEntryIndex()

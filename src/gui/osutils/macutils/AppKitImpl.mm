@@ -17,16 +17,8 @@
  */
 
 #import "AppKitImpl.h"
-#include "AppKit.h"
-#include <QWindow>
-
-#import <AppKit/NSStatusBar.h>
-#import <AppKit/NSStatusItem.h>
-#import <AppKit/NSStatusBarButton.h>
-#import <AppKit/NSWorkspace.h>
-#import <AppKit/NSWindow.h>
-#import <AppKit/NSView.h>
-#import <CoreVideo/CVPixelBuffer.h>
+#import <QWindow>
+#import <Cocoa/Cocoa.h>
 
 @implementation AppKitImpl
 
@@ -68,7 +60,7 @@
 - (void) didDeactivateApplicationObserver:(NSNotification*) notification
 {
     NSDictionary* userInfo = notification.userInfo;
-    NSRunningApplication* app = userInfo[NSWorkspaceApplicationKey];
+    NSRunningApplication* app = [userInfo objectForKey:NSWorkspaceApplicationKey];
 
     if (app.processIdentifier != [self ownProcessId]) {
         self.lastActiveApplication = app;
@@ -147,6 +139,7 @@
 //
 - (bool) isStatusBarDark
 {
+#if __clang_major__ >= 9 && MAC_OS_X_VERSION_MIN_REQUIRED >= 101000
     if (@available(macOS 10.17, *)) {
         // This is an ugly hack, but I couldn't find a way to access QTrayIcon's NSStatusItem.
         NSStatusItem* dummy = [[NSStatusBar systemStatusBar] statusItemWithLength:0];
@@ -154,6 +147,7 @@
         [[NSStatusBar systemStatusBar] removeStatusItem:dummy];
         return [appearance containsString:@"dark"];
     }
+#endif
 
     return [self isDarkMode];
 }
@@ -174,9 +168,13 @@
 //
 - (bool) enableAccessibility
 {
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1090
     // Request accessibility permissions for Auto-Type type on behalf of the user
     NSDictionary* opts = @{static_cast<id>(kAXTrustedCheckOptionPrompt): @YES};
     return AXIsProcessTrustedWithOptions(static_cast<CFDictionaryRef>(opts));
+#else
+    return YES;
+#endif
 }
 
 //
@@ -184,6 +182,7 @@
 //
 - (bool) enableScreenRecording
 {
+#if __clang_major__ >= 9 && MAC_OS_X_VERSION_MIN_REQUIRED >= 1080
     if (@available(macOS 10.15, *)) {
         // Request screen recording permission on macOS 10.15+
         // This is necessary to get the current window title
@@ -201,16 +200,16 @@
             return NO;
         }
     }
+#endif
     return YES;
 }
 
 - (void) toggleForegroundApp:(bool) foreground
 {
-    ProcessSerialNumber psn = {0, kCurrentProcess};
     if (foreground) {
-        TransformProcessType(&psn, kProcessTransformToForegroundApplication);
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
     } else {
-        TransformProcessType(&psn, kProcessTransformToUIElementApplication);
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
     }
 }
 

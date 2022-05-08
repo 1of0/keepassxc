@@ -16,18 +16,21 @@
  */
 
 #include "CustomData.h"
-#include "Clock.h"
 
+#include "core/Clock.h"
 #include "core/Global.h"
 
 const QString CustomData::LastModified = QStringLiteral("_LAST_MODIFIED");
 const QString CustomData::Created = QStringLiteral("_CREATED");
 const QString CustomData::BrowserKeyPrefix = QStringLiteral("KPXC_BROWSER_");
 const QString CustomData::BrowserLegacyKeyPrefix = QStringLiteral("Public Key: ");
-const QString CustomData::ExcludeFromReports = QStringLiteral("KnownBad");
+const QString CustomData::ExcludeFromReportsLegacy = QStringLiteral("KnownBad");
+
+// Fallback item for return by reference
+static const CustomData::CustomDataItem NULL_ITEM{};
 
 CustomData::CustomData(QObject* parent)
-    : QObject(parent)
+    : ModifiableObject(parent)
 {
 }
 
@@ -43,7 +46,17 @@ bool CustomData::hasKey(const QString& key) const
 
 QString CustomData::value(const QString& key) const
 {
-    return m_data.value(key);
+    return m_data.value(key).value;
+}
+
+const CustomData::CustomDataItem& CustomData::item(const QString& key) const
+{
+    auto item = m_data.find(key);
+    Q_ASSERT(item != m_data.end());
+    if (item == m_data.end()) {
+        return NULL_ITEM;
+    }
+    return item.value();
 }
 
 bool CustomData::contains(const QString& key) const
@@ -53,22 +66,30 @@ bool CustomData::contains(const QString& key) const
 
 bool CustomData::containsValue(const QString& value) const
 {
-    return asConst(m_data).values().contains(value);
+    for (auto i = m_data.constBegin(); i != m_data.constEnd(); ++i) {
+        if (i.value().value == value) {
+            return true;
+        }
+    }
+    return false;
 }
 
-void CustomData::set(const QString& key, const QString& value)
+void CustomData::set(const QString& key, CustomDataItem item)
 {
     bool addAttribute = !m_data.contains(key);
-    bool changeValue = !addAttribute && (m_data.value(key) != value);
+    bool changeValue = !addAttribute && (m_data.value(key).value != item.value);
 
     if (addAttribute) {
         emit aboutToBeAdded(key);
     }
 
+    if (!item.lastModified.isValid()) {
+        item.lastModified = Clock::currentDateTimeUtc();
+    }
     if (addAttribute || changeValue) {
-        m_data.insert(key, value);
+        m_data.insert(key, item);
         updateLastModified();
-        emit customDataModified();
+        emitModified();
     }
 
     if (addAttribute) {
@@ -76,15 +97,22 @@ void CustomData::set(const QString& key, const QString& value)
     }
 }
 
+void CustomData::set(const QString& key, const QString& value, const QDateTime& lastModified)
+{
+    set(key, {value, lastModified});
+}
+
 void CustomData::remove(const QString& key)
 {
     emit aboutToBeRemoved(key);
 
-    m_data.remove(key);
+    if (m_data.contains(key)) {
+        m_data.remove(key);
+        updateLastModified();
+        emitModified();
+    }
 
-    updateLastModified();
     emit removed(key);
-    emit customDataModified();
 }
 
 void CustomData::rename(const QString& oldKey, const QString& newKey)
@@ -96,15 +124,16 @@ void CustomData::rename(const QString& oldKey, const QString& newKey)
         return;
     }
 
-    QString data = value(oldKey);
+    CustomDataItem data = m_data.value(oldKey);
 
     emit aboutToRename(oldKey, newKey);
 
     m_data.remove(oldKey);
+    data.lastModified = Clock::currentDateTimeUtc();
     m_data.insert(newKey, data);
 
     updateLastModified();
-    emit customDataModified();
+    emitModified();
     emit renamed(oldKey, newKey);
 }
 
@@ -120,18 +149,44 @@ void CustomData::copyDataFrom(const CustomData* other)
 
     updateLastModified();
     emit reset();
-    emit customDataModified();
+    emitModified();
 }
 
-QDateTime CustomData::getLastModified() const
+QDateTime CustomData::lastModified() const
 {
     if (m_data.contains(LastModified)) {
-        return Clock::parse(m_data.value(LastModified));
+        return Clock::parse(m_data.value(LastModified).value);
     }
-    return {};
+
+    // Try to find the latest modification time in items as a fallback
+    QDateTime modified;
+    for (auto i = m_data.constBegin(); i != m_data.constEnd(); ++i) {
+        if (i->lastModified.isValid() && (!modified.isValid() || i->lastModified > modified)) {
+            modified = i->lastModified;
+        }
+    }
+    return modified;
 }
 
-bool CustomData::isProtectedCustomData(const QString& key) const
+QDateTime CustomData::lastModified(const QString& key) const
+{
+    return m_data.value(key).lastModified;
+}
+
+void CustomData::updateLastModified(QDateTime lastModified)
+{
+    if (m_data.isEmpty() || (m_data.size() == 1 && m_data.contains(LastModified))) {
+        m_data.remove(LastModified);
+        return;
+    }
+
+    if (!lastModified.isValid()) {
+        lastModified = Clock::currentDateTimeUtc();
+    }
+    m_data.insert(LastModified, {lastModified.toString(), QDateTime()});
+}
+
+bool CustomData::isProtected(const QString& key) const
 {
     return key.startsWith(CustomData::BrowserKeyPrefix) || key.startsWith(CustomData::Created);
 }
@@ -153,7 +208,7 @@ void CustomData::clear()
     m_data.clear();
 
     emit reset();
-    emit customDataModified();
+    emitModified();
 }
 
 bool CustomData::isEmpty() const
@@ -170,20 +225,15 @@ int CustomData::dataSize() const
 {
     int size = 0;
 
-    QHashIterator<QString, QString> i(m_data);
+    QHashIterator<QString, CustomDataItem> i(m_data);
     while (i.hasNext()) {
         i.next();
-        size += i.key().toUtf8().size() + i.value().toUtf8().size();
+
+        // In theory, we should be adding the datetime string size as well, but it makes
+        // length calculations rather unpredictable. We also don't know if this instance
+        // is entry/group-level CustomData or global CustomData (the only CustomData that
+        // actually retains the datetime in the KDBX file).
+        size += i.key().toUtf8().size() + i.value().value.toUtf8().size();
     }
     return size;
-}
-
-void CustomData::updateLastModified()
-{
-    if (m_data.size() == 1 && m_data.contains(LastModified)) {
-        m_data.remove(LastModified);
-        return;
-    }
-
-    m_data.insert(LastModified, Clock::currentDateTimeUtc().toString());
 }

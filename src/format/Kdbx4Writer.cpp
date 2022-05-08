@@ -18,30 +18,26 @@
 #include "Kdbx4Writer.h"
 
 #include <QBuffer>
-#include <QFile>
 
-#include "core/CustomData.h"
-#include "core/Database.h"
-#include "core/Metadata.h"
 #include "crypto/CryptoHash.h"
 #include "crypto/Random.h"
 #include "format/KdbxXmlWriter.h"
 #include "format/KeePass2RandomStream.h"
 #include "streams/HmacBlockStream.h"
-#include "streams/QtIOCompressor"
 #include "streams/SymmetricCipherStream.h"
+#include "streams/qtiocompressor.h"
 
 bool Kdbx4Writer::writeDatabase(QIODevice* device, Database* db)
 {
     m_error = false;
     m_errorStr.clear();
 
-    SymmetricCipher::Algorithm algo = SymmetricCipher::cipherToAlgorithm(db->cipher());
-    if (algo == SymmetricCipher::InvalidAlgorithm) {
+    auto mode = SymmetricCipher::cipherUuidToMode(db->cipher());
+    if (mode == SymmetricCipher::InvalidMode) {
         raiseError(tr("Invalid symmetric cipher algorithm."));
         return false;
     }
-    int ivSize = SymmetricCipher::algorithmIvSize(algo);
+    int ivSize = SymmetricCipher::defaultIvSize(mode);
     if (ivSize < 0) {
         raiseError(tr("Invalid symmetric cipher IV size.", "IV = Initialization Vector for symmetric cipher"));
         return false;
@@ -70,7 +66,7 @@ bool Kdbx4Writer::writeDatabase(QIODevice* device, Database* db)
         QBuffer header;
         header.open(QIODevice::WriteOnly);
 
-        writeMagicNumbers(&header, KeePass2::SIGNATURE_1, KeePass2::SIGNATURE_2, formatVersion());
+        writeMagicNumbers(&header, KeePass2::SIGNATURE_1, KeePass2::SIGNATURE_2, db->formatVersion());
 
         CHECK_RETURN_FALSE(
             writeHeaderField<quint32>(&header, KeePass2::HeaderFieldID::CipherID, db->cipher().toRfc4122()));
@@ -124,10 +120,9 @@ bool Kdbx4Writer::writeDatabase(QIODevice* device, Database* db)
         return false;
     }
 
-    cipherStream.reset(new SymmetricCipherStream(
-        hmacBlockStream.data(), algo, SymmetricCipher::algorithmMode(algo), SymmetricCipher::Encrypt));
+    cipherStream.reset(new SymmetricCipherStream(hmacBlockStream.data()));
 
-    if (!cipherStream->init(finalKey, encryptionIV)) {
+    if (!cipherStream->init(mode, SymmetricCipher::Encrypt, finalKey, encryptionIV)) {
         raiseError(cipherStream->errorString());
         return false;
     }
@@ -165,13 +160,13 @@ bool Kdbx4Writer::writeDatabase(QIODevice* device, Database* db)
 
     CHECK_RETURN_FALSE(writeInnerHeaderField(outputDevice, KeePass2::InnerHeaderFieldID::End, QByteArray()));
 
-    KeePass2RandomStream randomStream(KeePass2::ProtectedStreamAlgo::ChaCha20);
-    if (!randomStream.init(protectedStreamKey)) {
+    KeePass2RandomStream randomStream;
+    if (!randomStream.init(SymmetricCipher::ChaCha20, protectedStreamKey)) {
         raiseError(randomStream.errorString());
         return false;
     }
 
-    KdbxXmlWriter xmlWriter(formatVersion());
+    KdbxXmlWriter xmlWriter(db->formatVersion());
     xmlWriter.writeDatabase(outputDevice, db, &randomStream, headerHash);
 
     // Explicitly close/reset streams so they are flushed and we can detect
@@ -207,7 +202,7 @@ bool Kdbx4Writer::writeDatabase(QIODevice* device, Database* db)
 bool Kdbx4Writer::writeInnerHeaderField(QIODevice* device, KeePass2::InnerHeaderFieldID fieldId, const QByteArray& data)
 {
     QByteArray fieldIdArr;
-    fieldIdArr[0] = static_cast<char>(fieldId);
+    fieldIdArr.append(static_cast<char>(fieldId));
     CHECK_RETURN_FALSE(writeData(device, fieldIdArr));
     CHECK_RETURN_FALSE(
         writeData(device, Endian::sizedIntToBytes(static_cast<quint32>(data.size()), KeePass2::BYTEORDER)));
@@ -294,7 +289,7 @@ bool Kdbx4Writer::serializeVariantMap(const QVariantMap& map, QByteArray& output
             return false;
         }
         QByteArray typeBytes;
-        typeBytes[0] = static_cast<char>(fieldType);
+        typeBytes.append(static_cast<char>(fieldType));
         QByteArray nameBytes = k.toUtf8();
         QByteArray nameLenBytes = Endian::sizedIntToBytes(nameBytes.size(), KeePass2::BYTEORDER);
         QByteArray dataLenBytes = Endian::sizedIntToBytes(data.size(), KeePass2::BYTEORDER);
@@ -307,12 +302,7 @@ bool Kdbx4Writer::serializeVariantMap(const QVariantMap& map, QByteArray& output
     }
 
     QByteArray endBytes;
-    endBytes[0] = static_cast<char>(KeePass2::VariantMapFieldType::End);
+    endBytes.append(static_cast<char>(KeePass2::VariantMapFieldType::End));
     CHECK_RETURN_FALSE(buf.write(endBytes) == 1);
     return true;
-}
-
-quint32 Kdbx4Writer::formatVersion()
-{
-    return KeePass2::FILE_VERSION_4;
 }

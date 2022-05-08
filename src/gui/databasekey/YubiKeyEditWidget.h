@@ -19,14 +19,13 @@
 #define KEEPASSXC_YUBIKEYEDITWIDGET_H
 
 #include "KeyComponentWidget.h"
-#include <QPointer>
 
 namespace Ui
 {
     class YubiKeyEditWidget;
 }
 
-class YkChallengeResponseKey;
+class ChallengeResponseKey;
 
 class YubiKeyEditWidget : public KeyComponentWidget
 {

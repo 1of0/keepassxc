@@ -62,6 +62,8 @@ private slots:
     void systrayToggled(bool checked);
     void rememberDatabasesToggled(bool checked);
     void checkUpdatesToggled(bool checked);
+    void showExpiredEntriesOnDatabaseUnlockToggled(bool checked);
+    void selectBackupDirectory();
 
 private:
     QWidget* const m_secWidget;

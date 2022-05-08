@@ -93,6 +93,12 @@ QString Resources::wordlistPath(const QString& name) const
     return dataPath(QStringLiteral("wordlists/%1").arg(name));
 }
 
+QString Resources::userWordlistPath(const QString& name) const
+{
+    QString configPath = QFileInfo(config()->getFileName()).absolutePath();
+    return configPath + QStringLiteral("/wordlists/%1").arg(name);
+}
+
 Resources::Resources()
 {
     const QString appDirPath = QCoreApplication::applicationDirPath();

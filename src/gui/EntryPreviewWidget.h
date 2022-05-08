@@ -21,8 +21,6 @@
 #include "config-keepassx.h"
 #include "gui/DatabaseWidget.h"
 
-#include <QWidget>
-
 namespace Ui
 {
     class EntryPreviewWidget;
@@ -42,6 +40,7 @@ public slots:
     void setEntry(Entry* selectedEntry);
     void setGroup(Group* selectedGroup);
     void setDatabaseMode(DatabaseWidget::Mode mode);
+    void clear();
 
 signals:
     void errorOccurred(const QString& error);

@@ -20,7 +20,6 @@
 
 #include "BrowserSettings.h"
 #include "config-keepassx.h"
-#include "core/Resources.h"
 
 #include <QFileDialog>
 
@@ -117,12 +116,6 @@ void BrowserSettingsWidget::loadSettings()
     // TODO: fix this
     m_ui->showNotification->hide();
 
-    if (settings->sortByUsername()) {
-        m_ui->sortByUsername->setChecked(true);
-    } else {
-        m_ui->sortByTitle->setChecked(true);
-    }
-
     m_ui->alwaysAllowAccess->setChecked(settings->alwaysAllowAccess());
     m_ui->alwaysAllowUpdate->setChecked(settings->alwaysAllowUpdate());
     m_ui->httpAuthPermission->setChecked(settings->httpAuthPermission());
@@ -130,7 +123,7 @@ void BrowserSettingsWidget::loadSettings()
     m_ui->supportKphFields->setChecked(settings->supportKphFields());
     m_ui->noMigrationPrompt->setChecked(settings->noMigrationPrompt());
     m_ui->useCustomProxy->setChecked(settings->useCustomProxy());
-    m_ui->customProxyLocation->setText(settings->customProxyLocation());
+    m_ui->customProxyLocation->setText(settings->replaceHomePath(settings->customProxyLocation()));
     m_ui->updateBinaryPath->setChecked(settings->updateBinaryPath());
     m_ui->allowExpiredCredentials->setChecked(settings->allowExpiredCredentials());
     m_ui->chromeSupport->setChecked(settings->browserSupport(BrowserShared::CHROME));
@@ -144,12 +137,6 @@ void BrowserSettingsWidget::loadSettings()
 #endif
 #ifndef Q_OS_LINUX
     m_ui->snapWarningLabel->setVisible(false);
-#endif
-
-// TODO: Enable Edge support when Linux version is released
-#ifdef Q_OS_LINUX
-    m_ui->edgeSupport->setChecked(false);
-    m_ui->edgeSupport->setEnabled(false);
 #endif
 
 #ifdef KEEPASSXC_DIST_SNAP
@@ -171,6 +158,18 @@ void BrowserSettingsWidget::loadSettings()
     m_ui->browserGlobalWarningWidget->setCloseButtonVisible(false);
     m_ui->browserGlobalWarningWidget->setAutoHideTimeout(-1);
 #endif
+#ifdef KEEPASSXC_DIST_FLATPAK
+    // Guarantees proxy path works with different flatpak installations
+    m_ui->updateBinaryPath->setChecked(true);
+    m_ui->updateBinaryPath->setEnabled(false);
+    // The sandbox makes custom proxy locations very unintuitive
+    m_ui->useCustomProxy->setChecked(false);
+    m_ui->useCustomProxy->setEnabled(false);
+    m_ui->useCustomProxy->setVisible(false);
+    m_ui->customProxyLocation->setVisible(false);
+    // Won't work with xdg portals and executables that must be browser accessible
+    m_ui->customProxyLocationBrowseButton->setVisible(false);
+#endif
 
     const auto customBrowserSet = settings->customBrowserSupport();
     m_ui->customBrowserSupport->setChecked(customBrowserSet);
@@ -182,7 +181,7 @@ void BrowserSettingsWidget::loadSettings()
     if (typeIndex >= 0) {
         m_ui->browserTypeComboBox->setCurrentIndex(typeIndex);
     }
-    m_ui->customBrowserLocation->setText(settings->customBrowserLocation());
+    m_ui->customBrowserLocation->setText(settings->replaceHomePath(settings->customBrowserLocation()));
 
 #ifdef QT_DEBUG
     m_ui->customExtensionId->setText(settings->customExtensionId());
@@ -193,7 +192,8 @@ void BrowserSettingsWidget::loadSettings()
 
 void BrowserSettingsWidget::validateCustomProxyLocation()
 {
-    auto path = m_ui->customProxyLocation->text();
+    auto path = browserSettings()->customProxyLocation();
+
     if (m_ui->useCustomProxy->isChecked() && !QFile::exists(path)) {
         m_ui->warningWidget->showMessage(tr("<b>Error:</b> The custom proxy location cannot be found!"
                                             "<br/>Browser integration WILL NOT WORK without the proxy application."),
@@ -212,10 +212,9 @@ void BrowserSettingsWidget::saveSettings()
     settings->setBestMatchOnly(m_ui->bestMatchOnly->isChecked());
     settings->setUnlockDatabase(m_ui->unlockDatabase->isChecked());
     settings->setMatchUrlScheme(m_ui->matchUrlScheme->isChecked());
-    settings->setSortByUsername(m_ui->sortByUsername->isChecked());
 
     settings->setUseCustomProxy(m_ui->useCustomProxy->isChecked());
-    settings->setCustomProxyLocation(m_ui->customProxyLocation->text());
+    settings->setCustomProxyLocation(browserSettings()->replaceTildeHomePath(m_ui->customProxyLocation->text()));
 
     settings->setUpdateBinaryPath(m_ui->updateBinaryPath->isChecked());
     settings->setAllowExpiredCredentials(m_ui->allowExpiredCredentials->isChecked());
@@ -240,16 +239,12 @@ void BrowserSettingsWidget::saveSettings()
     settings->setBrowserSupport(BrowserShared::TOR_BROWSER, m_ui->torBrowserSupport->isChecked());
 
     // Custom browser settings
-    bool customBrowserEnabled = m_ui->customBrowserSupport->isChecked();
+    auto customBrowserEnabled = m_ui->customBrowserSupport->isChecked();
     settings->setCustomBrowserType(m_ui->browserTypeComboBox->currentData().toInt());
-    settings->setCustomBrowserLocation(m_ui->customBrowserLocation->text());
+    settings->setCustomBrowserLocation(
+        customBrowserEnabled ? browserSettings()->replaceTildeHomePath(m_ui->customBrowserLocation->text()) : "");
     settings->setCustomBrowserSupport(customBrowserEnabled);
     settings->setBrowserSupport(BrowserShared::CUSTOM, customBrowserEnabled);
-
-    // If we disabled the custom browser support make sure to clear variables
-    if (!customBrowserEnabled) {
-        settings->setCustomBrowserLocation("");
-    }
 #endif
 }
 
@@ -264,6 +259,8 @@ void BrowserSettingsWidget::showProxyLocationFileDialog()
                                                       tr("Select custom proxy location"),
                                                       QFileInfo(QCoreApplication::applicationDirPath()).filePath(),
                                                       fileTypeFilter);
+
+    proxyLocation = browserSettings()->replaceHomePath(proxyLocation);
     m_ui->customProxyLocation->setText(proxyLocation);
     validateCustomProxyLocation();
 }
@@ -273,6 +270,8 @@ void BrowserSettingsWidget::showCustomBrowserLocationFileDialog()
     auto location = QFileDialog::getExistingDirectory(this,
                                                       tr("Select native messaging host folder location"),
                                                       QFileInfo(QCoreApplication::applicationDirPath()).filePath());
+
+    location = browserSettings()->replaceHomePath(location);
     if (!location.isEmpty()) {
         m_ui->customBrowserLocation->setText(location);
     }

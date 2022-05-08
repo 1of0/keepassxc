@@ -62,12 +62,13 @@ class AutoTypeExtExecutorTest : public TargetedAutoTypeExecutor
 public:
     explicit AutoTypeExtExecutorTest(AutoTypeExtTest* platform);
 
-    void execType(AutoTypeKey* action, QSharedPointer<AutoTypeTarget> target) override;
-    void execClearField(AutoTypeClearField* action, QSharedPointer<AutoTypeTarget> target) override;
+    AutoTypeAction::Result execBegin(const AutoTypeBegin* action, QSharedPointer<AutoTypeTarget> target) override;
+    AutoTypeAction::Result execType(const AutoTypeKey* action, QSharedPointer<AutoTypeTarget> target) override;
+    AutoTypeAction::Result execClearField(const AutoTypeClearField* action, QSharedPointer<AutoTypeTarget> target) override;
 
 private:
     AutoTypeExtTest* const m_platform;
 };
 
 
-#endif // KEEPASSX_AUTOTYPEEXTTEST_H
+#endif // KEEPASSX_AUTOTYPEEXTTEST

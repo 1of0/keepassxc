@@ -19,18 +19,20 @@
 #include "EditWidgetIcons.h"
 #include "ui_EditWidgetIcons.h"
 
-#include <QFileDialog>
-#include <QMessageBox>
-
+#include "core/Clock.h"
 #include "core/Config.h"
-#include "core/Group.h"
+#include "core/Database.h"
 #include "core/Metadata.h"
 #include "core/Tools.h"
+#include "gui/FileDialog.h"
 #include "gui/IconModels.h"
+#include "gui/Icons.h"
 #include "gui/MessageBox.h"
 #ifdef WITH_XC_NETWORKING
 #include "gui/IconDownloader.h"
 #endif
+
+#include <QKeyEvent>
 
 IconStruct::IconStruct()
     : uuid(QUuid())
@@ -78,8 +80,10 @@ EditWidgetIcons::EditWidgetIcons(QWidget* parent)
 #endif
     // clang-format on
 
+#ifndef WITH_XC_NETWORKING
     m_ui->faviconButton->setVisible(false);
-    m_ui->addButton->setEnabled(true);
+    m_ui->faviconURL->setVisible(false);
+#endif
 }
 
 EditWidgetIcons::~EditWidgetIcons()
@@ -131,7 +135,7 @@ void EditWidgetIcons::load(const QUuid& currentUuid,
     m_currentUuid = currentUuid;
     setUrl(url);
 
-    m_customIconModel->setIcons(database->metadata()->customIconsPixmaps(IconSize::Default),
+    m_customIconModel->setIcons(Icons::customIconsPixmaps(database.data(), IconSize::Default),
                                 database->metadata()->customIconsOrder());
 
     QUuid iconUuid = iconStruct.uuid;
@@ -175,22 +179,36 @@ QMenu* EditWidgetIcons::createApplyIconToMenu()
     return applyIconToMenu;
 }
 
+void EditWidgetIcons::keyPressEvent(QKeyEvent* event)
+{
+    if (m_ui->faviconURL->hasFocus() && (event->key() == Qt::Key_Enter || event->key() == Qt::Key_Return)) {
+        m_ui->faviconButton->animateClick();
+    } else {
+        QWidget::keyPressEvent(event);
+    }
+}
+
 void EditWidgetIcons::setUrl(const QString& url)
 {
 #ifdef WITH_XC_NETWORKING
-    m_url = url;
-    m_ui->faviconButton->setVisible(!url.isEmpty());
+    QUrl urlCheck(url);
+    if (urlCheck.scheme().startsWith("http")) {
+        m_ui->faviconURL->setText(urlCheck.url(QUrl::RemovePath | QUrl::RemoveQuery | QUrl::RemoveFragment));
+        m_ui->faviconURL->setCursorPosition(0);
+    } else {
+        m_ui->faviconURL->setText("");
+    }
 #else
     Q_UNUSED(url);
-    m_ui->faviconButton->setVisible(false);
 #endif
 }
 
 void EditWidgetIcons::downloadFavicon()
 {
 #ifdef WITH_XC_NETWORKING
-    if (!m_url.isEmpty()) {
-        m_downloader->setUrl(m_url);
+    auto url = m_ui->faviconURL->text();
+    if (!url.isEmpty()) {
+        m_downloader->setUrl(url);
         m_downloader->download();
     }
 #endif
@@ -234,9 +252,9 @@ void EditWidgetIcons::addCustomIconFromFile()
         return;
     }
 
-    QString filter = QString("%1 (%2);;%3 (*)").arg(tr("Images"), Tools::imageReaderFilter(), tr("All files"));
-
-    auto filenames = QFileDialog::getOpenFileNames(this, tr("Select Image(s)"), "", filter);
+    auto filter = QString("%1 (%2);;%3 (*)").arg(tr("Images"), Icons::imageFormatsFilter(), tr("All files"));
+    auto filenames =
+        fileDialog()->getOpenFileNames(this, tr("Select Image(s)"), FileDialog::getLastDir("icons"), filter);
     if (!filenames.empty()) {
         QStringList errornames;
         int numexisting = 0;
@@ -245,12 +263,15 @@ void EditWidgetIcons::addCustomIconFromFile()
                 auto icon = QImage(filename);
                 if (icon.isNull()) {
                     errornames << filename;
-                } else if (!addCustomIcon(icon)) {
+                } else if (!addCustomIcon(icon, QFileInfo(filename).baseName())) {
                     // Icon already exists in database
                     ++numexisting;
                 }
             }
         }
+
+        // Save last used directory using first image path
+        FileDialog::saveLastDir("icons", filenames[0]);
 
         int numloaded = filenames.size() - errornames.size() - numexisting;
         QString msg;
@@ -279,21 +300,22 @@ void EditWidgetIcons::addCustomIconFromFile()
     }
 }
 
-bool EditWidgetIcons::addCustomIcon(const QImage& icon)
+bool EditWidgetIcons::addCustomIcon(const QImage& icon, const QString& name)
 {
     bool added = false;
     if (m_db) {
         // Don't add an icon larger than 128x128, but retain original size if smaller
-        auto scaledicon = icon;
+        auto scaledIcon = icon;
         if (icon.width() > 128 || icon.height() > 128) {
-            scaledicon = icon.scaled(128, 128);
+            scaledIcon = icon.scaled(128, 128);
         }
 
-        QUuid uuid = m_db->metadata()->findCustomIcon(scaledicon);
+        QByteArray serializedIcon = Icons::saveToBytes(scaledIcon);
+        QUuid uuid = m_db->metadata()->findCustomIcon(serializedIcon);
         if (uuid.isNull()) {
             uuid = QUuid::createUuid();
-            m_db->metadata()->addCustomIcon(uuid, scaledicon);
-            m_customIconModel->setIcons(m_db->metadata()->customIconsPixmaps(IconSize::Default),
+            m_db->metadata()->addCustomIcon(uuid, serializedIcon, name, Clock::currentDateTimeUtc());
+            m_customIconModel->setIcons(Icons::customIconsPixmaps(m_db.data(), IconSize::Default),
                                         m_db->metadata()->customIconsOrder());
             added = true;
         }

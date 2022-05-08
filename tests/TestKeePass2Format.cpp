@@ -16,18 +16,18 @@
  */
 
 #include "TestKeePass2Format.h"
-#include "TestGlobal.h"
 #include "mock/MockClock.h"
 
+#include "core/Group.h"
 #include "core/Metadata.h"
 #include "crypto/Crypto.h"
-#include "format/KdbxXmlReader.h"
 #include "keys/FileKey.h"
 #include "keys/PasswordKey.h"
 #include "mock/MockChallengeResponseKey.h"
 
 #include "FailDevice.h"
 #include "config-keepassx-tests.h"
+#include <QtTest>
 
 void TestKeePass2Format::initTestCase()
 {
@@ -113,18 +113,10 @@ void TestKeePass2Format::testXmlCustomIcons()
     QCOMPARE(m_xmlDb->metadata()->customIconsOrder().size(), 1);
     QUuid uuid = QUuid::fromRfc4122(QByteArray::fromBase64("++vyI+daLk6omox4a6kQGA=="));
     QVERIFY(m_xmlDb->metadata()->hasCustomIcon(uuid));
-    QImage icon = m_xmlDb->metadata()->customIcon(uuid);
-    QCOMPARE(icon.width(), 16);
-    QCOMPARE(icon.height(), 16);
+    QByteArray icon = m_xmlDb->metadata()->customIcon(uuid).data;
 
-    for (int x = 0; x < 16; x++) {
-        for (int y = 0; y < 16; y++) {
-            QRgb rgb = icon.pixel(x, y);
-            QCOMPARE(qRed(rgb), 128);
-            QCOMPARE(qGreen(rgb), 0);
-            QCOMPARE(qBlue(rgb), 128);
-        }
-    }
+    QVERIFY(icon.startsWith(
+        "\x89PNG\r\n\x1A\n\x00\x00\x00\rIHDR\x00\x00\x00\x10\x00\x00\x00\x10\b\x06\x00\x00\x00\x1F\xF3\xFF"));
 }
 
 void TestKeePass2Format::testXmlGroupRoot()
@@ -803,13 +795,13 @@ void TestKeePass2Format::testDuplicateAttachments()
 }
 
 /**
- * @return fast "dummy" KDF
+ * Fast "dummy" KDF
  */
-QSharedPointer<Kdf> TestKeePass2Format::fastKdf(QSharedPointer<Kdf> kdf) const
+QSharedPointer<Kdf> fastKdf(QSharedPointer<Kdf> kdf)
 {
     kdf->setRounds(1);
 
-    if (kdf->uuid() == KeePass2::KDF_ARGON2D) {
+    if (kdf->uuid() == KeePass2::KDF_ARGON2D or kdf->uuid() == KeePass2::KDF_ARGON2ID) {
         kdf->processParameters({{KeePass2::KDFPARAM_ARGON2_MEMORY, 1024}, {KeePass2::KDFPARAM_ARGON2_PARALLELISM, 1}});
     }
 

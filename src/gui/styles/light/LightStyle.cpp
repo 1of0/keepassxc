@@ -16,13 +16,17 @@
  */
 
 #include "LightStyle.h"
-#include "gui/ApplicationSettingsWidget.h"
-#include "gui/osutils/OSUtils.h"
 
 #include <QDialog>
+#include <QFile>
 #include <QMainWindow>
 #include <QMenuBar>
+#include <QStatusBar>
 #include <QToolBar>
+
+#ifdef Q_OS_MACOS
+#include "gui/osutils/OSUtils.h"
+#endif
 
 LightStyle::LightStyle()
     : BaseStyle()
@@ -111,7 +115,7 @@ QString LightStyle::getAppStyleSheet() const
 void LightStyle::polish(QWidget* widget)
 {
     if (qobject_cast<QMainWindow*>(widget) || qobject_cast<QDialog*>(widget) || qobject_cast<QMenuBar*>(widget)
-        || qobject_cast<QToolBar*>(widget)) {
+        || qobject_cast<QToolBar*>(widget) || qobject_cast<QStatusBar*>(widget)) {
         auto palette = widget->palette();
 #if defined(Q_OS_MACOS)
         if (osUtils->isDarkMode()) {

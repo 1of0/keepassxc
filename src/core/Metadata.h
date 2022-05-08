@@ -1,5 +1,6 @@
 /*
  *  Copyright (C) 2010 Felix Geyer <debfx@fobos.de>
+ *  Copyright (C) 2021 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,12 +21,7 @@
 
 #include <QDateTime>
 #include <QHash>
-#include <QIcon>
-#include <QImage>
-#include <QPixmap>
-#include <QPixmapCache>
 #include <QPointer>
-#include <QSize>
 #include <QUuid>
 
 #include "core/CustomData.h"
@@ -34,7 +30,7 @@
 class Database;
 class Group;
 
-class Metadata : public QObject
+class Metadata : public ModifiableObject
 {
     Q_OBJECT
 
@@ -65,6 +61,19 @@ public:
         bool protectNotes;
     };
 
+    struct CustomIconData
+    {
+        QByteArray data;
+        QString name;
+        QDateTime lastModified;
+
+        bool operator==(const CustomIconData& rhs) const
+        {
+            // Compare only actual icon data
+            return data == rhs.data;
+        }
+    };
+
     void init();
     void clear();
 
@@ -83,10 +92,8 @@ public:
     bool protectPassword() const;
     bool protectUrl() const;
     bool protectNotes() const;
-    QImage customIcon(const QUuid& uuid) const;
+    const CustomIconData& customIcon(const QUuid& uuid) const;
     bool hasCustomIcon(const QUuid& uuid) const;
-    QPixmap customIconPixmap(const QUuid& uuid, IconSize size = IconSize::Default) const;
-    QHash<QUuid, QPixmap> customIconsPixmaps(IconSize size = IconSize::Default) const;
     QList<QUuid> customIconsOrder() const;
     bool recycleBinEnabled() const;
     Group* recycleBin();
@@ -122,10 +129,14 @@ public:
     void setProtectPassword(bool value);
     void setProtectUrl(bool value);
     void setProtectNotes(bool value);
-    void addCustomIcon(const QUuid& uuid, const QImage& image);
+    void addCustomIcon(const QUuid& uuid, const CustomIconData& iconData);
+    void addCustomIcon(const QUuid& uuid,
+                       const QByteArray& iconBytes,
+                       const QString& name = {},
+                       const QDateTime& lastModified = {});
     void removeCustomIcon(const QUuid& uuid);
     void copyCustomIcons(const QSet<QUuid>& iconList, const Metadata* otherMetadata);
-    QUuid findCustomIcon(const QImage& candidate);
+    QUuid findCustomIcon(const QByteArray& candidate);
     void setRecycleBinEnabled(bool value);
     void setRecycleBin(Group* group);
     void setRecycleBinChanged(const QDateTime& value);
@@ -149,20 +160,16 @@ public:
      */
     void copyAttributesFrom(const Metadata* other);
 
-signals:
-    void metadataModified();
-
 private:
     template <class P, class V> bool set(P& property, const V& value);
     template <class P, class V> bool set(P& property, const V& value, QDateTime& dateTime);
 
-    QByteArray hashImage(const QImage& image);
+    QByteArray hashIcon(const QByteArray& iconData);
 
     MetadataData m_data;
 
-    QHash<QUuid, QIcon> m_customIcons;
-    QHash<QUuid, QImage> m_customIconsRaw;
     QList<QUuid> m_customIconsOrder;
+    QHash<QUuid, CustomIconData> m_customIcons;
     QHash<QByteArray, QUuid> m_customIconsHashes;
 
     QPointer<Group> m_recycleBin;

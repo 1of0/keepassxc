@@ -1,7 +1,7 @@
 /*
  *  Copyright (C) 2013 Francois Ferrand
  *  Copyright (C) 2017 Sami Vänttinen <sami.vanttinen@protonmail.com>
- *  Copyright (C) 2017 KeePassXC Team <team@keepassxc.org>
+ *  Copyright (C) 2021 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,10 +20,7 @@
 #ifndef BROWSERSETTINGS_H
 #define BROWSERSETTINGS_H
 
-#include "BrowserShared.h"
 #include "NativeMessageInstaller.h"
-#include "core/PassphraseGenerator.h"
-#include "core/PasswordGenerator.h"
 
 class BrowserSettings
 {
@@ -42,10 +39,6 @@ public:
     void setUnlockDatabase(bool unlockDatabase);
     bool matchUrlScheme();
     void setMatchUrlScheme(bool matchUrlScheme);
-    bool sortByUsername();
-    void setSortByUsername(bool sortByUsername = true);
-    bool sortByTitle();
-    void setSortByTitle(bool sortByUsertitle = true);
     bool alwaysAllowAccess();
     void setAlwaysAllowAccess(bool alwaysAllowAccess);
     bool alwaysAllowUpdate();
@@ -81,56 +74,13 @@ public:
     void setCustomBrowserType(int type);
     QString customBrowserLocation();
     void setCustomBrowserLocation(const QString& location);
-    bool passwordUseNumbers();
-    void setPasswordUseNumbers(bool useNumbers);
-    bool passwordUseLowercase();
-    void setPasswordUseLowercase(bool useLowercase);
-    bool passwordUseUppercase();
-    void setPasswordUseUppercase(bool useUppercase);
-    bool passwordUseSpecial();
-    void setPasswordUseSpecial(bool useSpecial);
-    bool passwordUseBraces();
-    void setPasswordUseBraces(bool useBraces);
-    bool passwordUsePunctuation();
-    void setPasswordUsePunctuation(bool usePunctuation);
-    bool passwordUseQuotes();
-    void setPasswordUseQuotes(bool useQuotes);
-    bool passwordUseDashes();
-    void setPasswordUseDashes(bool useDashes);
-    bool passwordUseMath();
-    void setPasswordUseMath(bool useMath);
-    bool passwordUseLogograms();
-    void setPasswordUseLogograms(bool useLogograms);
-    bool passwordUseEASCII();
-    void setPasswordUseEASCII(bool useEASCII);
-    bool advancedMode();
-    void setAdvancedMode(bool advancedMode);
-    QString passwordAdditionalChars();
-    void setPasswordAdditionalChars(const QString& chars);
-    QString passwordExcludedChars();
-    void setPasswordExcludedChars(const QString& chars);
-    int passPhraseWordCount();
-    void setPassPhraseWordCount(int wordCount);
-    QString passPhraseWordSeparator();
-    void setPassPhraseWordSeparator(const QString& separator);
-    int generatorType();
-    void setGeneratorType(int type);
-    bool passwordEveryGroup();
-    void setPasswordEveryGroup(bool everyGroup);
-    bool passwordExcludeAlike();
-    void setPasswordExcludeAlike(bool excludeAlike);
-    int passwordLength();
-    void setPasswordLength(int length);
-    PasswordGenerator::CharClasses passwordCharClasses();
-    PasswordGenerator::GeneratorFlags passwordGeneratorFlags();
-    QJsonObject generatePassword();
     void updateBinaryPaths();
+    QString replaceHomePath(QString location);
+    QString replaceTildeHomePath(QString location);
 
 private:
     static BrowserSettings* m_instance;
 
-    PasswordGenerator m_passwordGenerator;
-    PassphraseGenerator m_passPhraseGenerator;
     NativeMessageInstaller m_nativeMessageInstaller;
 };
 

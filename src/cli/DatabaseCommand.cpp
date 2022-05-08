@@ -18,6 +18,9 @@
 #include "DatabaseCommand.h"
 
 #include "Utils.h"
+#include "config-keepassx.h"
+
+#include <QCommandLineParser>
 
 DatabaseCommand::DatabaseCommand()
 {

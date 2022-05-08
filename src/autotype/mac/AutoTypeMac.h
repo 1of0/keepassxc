@@ -49,7 +49,7 @@ public:
 
 private:
     static int windowLayer(CFDictionaryRef window);
-    static QString windowTitle(CFDictionaryRef window);
+    static QString windowStringProperty(CFDictionaryRef window, CFStringRef propertyRef);
 };
 
 class AutoTypeExecutorMac : public AutoTypeExecutor
@@ -57,8 +57,9 @@ class AutoTypeExecutorMac : public AutoTypeExecutor
 public:
     explicit AutoTypeExecutorMac(AutoTypePlatformMac* platform);
 
-    void execType(const AutoTypeKey* action) override;
-    void execClearField(const AutoTypeClearField* action) override;
+    AutoTypeAction::Result execBegin(const AutoTypeBegin* action) override;
+    AutoTypeAction::Result execType(const AutoTypeKey* action) override;
+    AutoTypeAction::Result execClearField(const AutoTypeClearField* action) override;
 
 private:
     AutoTypePlatformMac* const m_platform;

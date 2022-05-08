@@ -16,38 +16,36 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef KEEPASSX_CHALLENGE_RESPONSE_KEY_H
-#define KEEPASSX_CHALLENGE_RESPONSE_KEY_H
+#ifndef KPXC_CHALLENGE_RESPONSE_KEY_H
+#define KPXC_CHALLENGE_RESPONSE_KEY_H
 
-#include <QByteArray>
-#include <QUuid>
+#include "Key.h"
+#include "drivers/YubiKey.h"
 
-class ChallengeResponseKey
+class ChallengeResponseKey : public Key
 {
 public:
-    explicit ChallengeResponseKey(const QUuid& uuid)
-        : m_uuid(uuid)
-    {
-    }
-    virtual ~ChallengeResponseKey() = default;
+    explicit ChallengeResponseKey(YubiKeySlot keySlot = {});
+    ~ChallengeResponseKey() override = default;
 
-    virtual QByteArray rawKey() const = 0;
-    virtual bool challenge(const QByteArray& challenge) = 0;
-    virtual QUuid uuid() const
-    {
-        return m_uuid;
-    }
-    QString error() const
-    {
-        return m_error;
-    }
+    QByteArray rawKey() const override;
+    void setRawKey(const QByteArray&) override;
+    YubiKeySlot slotData() const;
 
-protected:
-    QString m_error;
+    virtual bool challenge(const QByteArray& challenge);
+    QString error() const;
+
+    QByteArray serialize() const override;
+    void deserialize(const QByteArray& data) override;
+
+    static QUuid UUID;
 
 private:
     Q_DISABLE_COPY(ChallengeResponseKey);
-    QUuid m_uuid;
+
+    QString m_error;
+    Botan::secure_vector<char> m_key;
+    YubiKeySlot m_keySlot;
 };
 
-#endif // KEEPASSX_CHALLENGE_RESPONSE_KEY_H
+#endif // KPXC_CHALLENGE_RESPONSE_KEY_H

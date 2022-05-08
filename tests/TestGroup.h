@@ -20,7 +20,6 @@
 #define KEEPASSX_TESTGROUP_H
 
 #include "core/Database.h"
-#include <QObject>
 
 class TestGroup : public QObject
 {
@@ -40,7 +39,6 @@ private slots:
     void testFindEntry();
     void testFindGroupByPath();
     void testPrint();
-    void testLocate();
     void testAddEntryWithPath();
     void testIsRecycled();
     void testCopyDataFrom();
@@ -49,7 +47,8 @@ private slots:
     void testHierarchy();
     void testApplyGroupIconRecursively();
     void testUsernamesRecursive();
-    void testMove();
+    void testMoveUpDown();
+    void testPreviousParentGroup();
 };
 
 #endif // KEEPASSX_TESTGROUP_H

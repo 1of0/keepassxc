@@ -18,8 +18,9 @@
 #ifndef KEEPASSX_PASSWORDKEY_H
 #define KEEPASSX_PASSWORDKEY_H
 
-#include <QSharedPointer>
-#include <QString>
+#include <botan/secmem.h>
+
+#include <QMetaType>
 
 #include "keys/Key.h"
 
@@ -30,17 +31,20 @@ public:
 
     PasswordKey();
     explicit PasswordKey(const QString& password);
-    ~PasswordKey() override;
+    ~PasswordKey() override = default;
     QByteArray rawKey() const override;
+    void setRawKey(const QByteArray& data) override;
     void setPassword(const QString& password);
-    void setHash(const QByteArray& hash);
 
     static QSharedPointer<PasswordKey> fromRawKey(const QByteArray& rawKey);
+
+    QByteArray serialize() const override;
+    void deserialize(const QByteArray& data) override;
 
 private:
     static constexpr int SHA256_SIZE = 32;
 
-    char* m_key = nullptr;
+    Botan::secure_vector<char> m_key;
     bool m_isInitialized = false;
 };
 

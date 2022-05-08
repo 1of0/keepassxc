@@ -39,6 +39,7 @@ public:
     Entry* currentEntry();
     void setCurrentEntry(Entry* entry);
     Entry* entryFromIndex(const QModelIndex& index);
+    QModelIndex indexFromEntry(Entry* entry);
     int currentEntryIndex();
     bool inSearchMode();
     bool isSorted();
@@ -58,7 +59,6 @@ signals:
 protected:
     void keyPressEvent(QKeyEvent* event) override;
     void focusInEvent(QFocusEvent* event) override;
-    void focusOutEvent(QFocusEvent* event) override;
     void showEvent(QShowEvent* event) override;
 
 private slots:

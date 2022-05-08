@@ -20,7 +20,6 @@
 
 #include <QHash>
 #include <QSharedPointer>
-#include <QStringList>
 
 class Database;
 class Entry;
@@ -82,6 +81,12 @@ public:
     {
         return m_entropy;
     }
+
+    struct Length
+    {
+        static const int Short = 8;
+        static const int Long = 25;
+    };
 
 private:
     int m_score = 0;

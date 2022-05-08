@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2019 KeePassXC Team <team@keepassxc.org>
+ *  Copyright (C) 2021 KeePassXC Team <team@keepassxc.org>
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -22,7 +22,6 @@
 
 #include "browser/BrowserAction.h"
 #include "browser/BrowserService.h"
-#include "core/Group.h"
 
 class TestBrowser : public QObject
 {
@@ -38,7 +37,8 @@ private slots:
     void testGetBase64FromKey();
     void testIncrementNonce();
 
-    void testBaseDomain();
+    void testTopLevelDomain();
+    void testIsIpAddress();
     void testSortPriority();
     void testSortPriority_data();
     void testSearchEntries();
@@ -48,7 +48,6 @@ private slots:
     void testSearchEntriesWithAdditionalURLs();
     void testInvalidEntries();
     void testSubdomainsAndPaths();
-    void testSortEntries();
     void testValidURLs();
     void testBestMatchingCredentials();
     void testBestMatchingWithAdditionalURLs();
