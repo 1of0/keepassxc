@@ -219,6 +219,8 @@ void ApplicationSettingsWidget::loadSettings()
         config()->get(Config::AutoTypeLibvirtDeadKeysWindows).toBool());
     m_generalUi->autoTypeLibvirtDeadKeysOtherCheckBox->setChecked(
         config()->get(Config::AutoTypeLibvirtDeadKeysOther).toBool());
+    m_generalUi->autoTypeLibvirtConnectionStringsTextBox->setText(
+        config()->get(Config::AutoTypeLibvirtConnectionStrings).toString());
     m_generalUi->faviconTimeoutSpinBox->setValue(config()->get(Config::FaviconDownloadTimeout).toInt());
 
     m_generalUi->languageComboBox->clear();
@@ -365,6 +367,7 @@ void ApplicationSettingsWidget::saveSettings()
     config()->set(Config::AutoTypeLibvirtDeadKeysWindows,
                   m_generalUi->autoTypeLibvirtDeadKeysWindowsCheckBox->isChecked());
     config()->set(Config::AutoTypeLibvirtDeadKeysOther, m_generalUi->autoTypeLibvirtDeadKeysOtherCheckBox->isChecked());
+    config()->set(Config::AutoTypeLibvirtConnectionStrings, m_generalUi->autoTypeLibvirtConnectionStringsTextBox->text());
     config()->set(Config::FaviconDownloadTimeout, m_generalUi->faviconTimeoutSpinBox->value());
 
     auto language = m_generalUi->languageComboBox->currentData().toString();

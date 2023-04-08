@@ -90,6 +90,7 @@ static const QHash<Config::ConfigKey, ConfigDirective> configStrings = {
     {Config::LastActiveDatabase, {QS("LastActiveDatabase"), Local, {}}},
     {Config::LastOpenedDatabases, {QS("LastOpenedDatabases"), Local, {}}},
     {Config::LastDir, {QS("LastDir"), Local, QDir::homePath()}},
+    {Config::AutoTypeLibvirtConnectionStrings,{QS("AutoTypeLibvirtConnectionStrings"), Local, QS("")}},
 
     // GUI
     {Config::GUI_Language, {QS("GUI/Language"), Roaming, QS("system")}},

@@ -81,13 +81,14 @@ public:
 private:
     bool shouldHandleDeadKeys(OperatingSystem operatingSystem);
 
-    virConnectPtr m_libvirtConnection;
+    QHash<QString, virConnectPtr> m_libvirtConnections;
 
     static const QHash<uint, uint> m_lowerSymbolKeyMapping;
     static const QHash<uint, uint> m_upperSymbolKeyMapping;
     static const QHash<Qt::Key, uint> m_keyToKeyCodeMapping;
     static const QHash<Qt::KeyboardModifier, uint> m_modifierToKeyCodeMapping;
     static const QVector<uint> m_deadKeys;
+    static const QString m_defaultConnectionString;
 };
 
 class AutoTypeExecutorLibvirt : public TargetedAutoTypeExecutor

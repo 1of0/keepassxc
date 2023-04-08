@@ -63,6 +63,7 @@ public:
         GlobalAutoTypeRetypeTime,
         AutoTypeLibvirtDeadKeysWindows,
         AutoTypeLibvirtDeadKeysOther,
+        AutoTypeLibvirtConnectionStrings,
         FaviconDownloadTimeout,
         UpdateCheckMessageShown,
 

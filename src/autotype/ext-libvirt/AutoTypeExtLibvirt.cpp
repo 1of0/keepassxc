@@ -125,23 +125,51 @@ const QRegExp AutoTypeTargetLibvirt::m_patternLinuxOperatingSystemUrl = QRegExp(
     "http://(ubuntu|debian|centos|fedora|redhat|opensuse|archlinux|alpinelinux|system76)"
 );
 
+const QString AutoTypeExtLibvirt::m_defaultConnectionString = QString("qemu:///system");
+
 AutoTypeExtLibvirt::AutoTypeExtLibvirt()
 {
-    m_libvirtConnection = virConnectOpen(nullptr);
-    if (m_libvirtConnection == nullptr) {
-        qWarning("Failed connecting to the default libvirt URI");
+    QString connectionStringsText = config()->get(Config::AutoTypeLibvirtConnectionStrings).toString();
+
+    QStringList connectionStrings = QStringList();
+
+    if (connectionStringsText.trimmed().isEmpty()) {
+        connectionStrings.append(m_defaultConnectionString);
+    } else {
+        connectionStrings = connectionStringsText.split(";", QString::SplitBehavior::SkipEmptyParts);
+    }
+
+    m_libvirtConnections = QHash<QString, virConnectPtr>();
+
+    for (const QString& connectionString : connectionStrings) {
+        virConnectPtr connection = virConnectOpen(connectionString.toStdString().c_str());
+        if (connection == nullptr) {
+            qWarning("Failed connecting to the libvirt URI: %s", qPrintable(connectionString));
+        }
+        qDebug("Connected to %s", qPrintable(connectionString));
+        m_libvirtConnections[connectionString] = connection;
     }
 }
 
 void AutoTypeExtLibvirt::unload()
 {
-    virConnectClose(m_libvirtConnection);
-    m_libvirtConnection = nullptr;
+    for (const QString& connectionString : m_libvirtConnections.keys()) {
+        if (m_libvirtConnections[connectionString] == nullptr) {
+            continue;
+        }
+        virConnectClose(m_libvirtConnections[connectionString]);
+        m_libvirtConnections[connectionString] = nullptr;
+    }
 }
 
 bool AutoTypeExtLibvirt::isAvailable()
 {
-    return m_libvirtConnection != nullptr;
+    for (const QString& connectionString : m_libvirtConnections.keys()) {
+        if (m_libvirtConnections[connectionString] != nullptr) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool AutoTypeExtLibvirt::isTargetSelectionRequired()
@@ -153,29 +181,47 @@ AutoTypeTargetMap AutoTypeExtLibvirt::availableTargets()
 {
     auto targetMap = AutoTypeTargetMap();
 
-    if (m_libvirtConnection == nullptr) {
-        qWarning("No open libvirt connection available");
-        return targetMap;
-    }
+    for (const QString& connectionString : m_libvirtConnections.keys()) {
+        virConnectPtr connection = m_libvirtConnections[connectionString];
 
-    virDomainPtr* domainList;
-
-    int domainCount = virConnectListAllDomains(m_libvirtConnection, &domainList, VIR_CONNECT_LIST_DOMAINS_RUNNING);
-
-    for (int i = 0; i < domainCount; i++) {
-        virDomainPtr currentDomain = domainList[i];
-
-        auto name = QString(virDomainGetName(currentDomain));
-
-        char uuidBuffer[VIR_UUID_STRING_BUFLEN];
-
-        if (virDomainGetUUIDString(currentDomain, uuidBuffer) < 0) {
-            qWarning("Failed getting uuid for libvirt domain %s", qPrintable(name));
-            virDomainFree(currentDomain);
-            continue;
+        if (connection && virConnectIsAlive(connection) < 1) {
+            qWarning("Connection with libvirt URI %s is not alive anymore; closing and attempting reconnecting", qPrintable(connectionString));
+            virConnectClose(connection);
+            connection = nullptr;
+            m_libvirtConnections[connectionString] = nullptr;
         }
 
-        targetMap.append(QSharedPointer<AutoTypeTargetLibvirt>::create(QString(uuidBuffer), name, currentDomain));
+        if (connection == nullptr) {
+            connection = virConnectOpen(connectionString.toStdString().c_str());
+            if (connection == nullptr) {
+                qWarning("Failed connecting to the libvirt URI: %s", qPrintable(connectionString));
+                continue;
+            }
+            qDebug("Connected to %s", qPrintable(connectionString));
+            m_libvirtConnections[connectionString] = connection;
+        }
+
+        virDomainPtr* domainList;
+
+        int domainCount = virConnectListAllDomains(m_libvirtConnections[connectionString], &domainList, VIR_CONNECT_LIST_DOMAINS_RUNNING);
+
+        for (int i = 0; i < domainCount; i++) {
+            virDomainPtr currentDomain = domainList[i];
+
+            auto name = QString(virDomainGetName(currentDomain));
+
+            char uuidBuffer[VIR_UUID_STRING_BUFLEN];
+
+            if (virDomainGetUUIDString(currentDomain, uuidBuffer) < 0) {
+                qWarning("Failed getting uuid for libvirt domain %s", qPrintable(name));
+                virDomainFree(currentDomain);
+                continue;
+            }
+
+            targetMap.append(QSharedPointer<AutoTypeTargetLibvirt>::create(QString(uuidBuffer), name, currentDomain));
+        }
+
+        free(domainList);
     }
 
     return targetMap;
