@@ -37,6 +37,12 @@ AutoTypeAction::Result AutoTypeKey::exec(AutoTypeExecutor* executor) const
     return executor->execType(this);
 }
 
+AutoTypeAction::Result AutoTypeKey::exec(TargetedAutoTypeExecutor* executor,
+                                         QSharedPointer<AutoTypeTarget> target) const
+{
+    return executor->execType(this, target);
+}
+
 AutoTypeDelay::AutoTypeDelay(int delayMs, bool setExecDelay)
     : delayMs(delayMs)
     , setExecDelay(setExecDelay)
@@ -66,6 +72,28 @@ AutoTypeAction::Result AutoTypeBegin::exec(AutoTypeExecutor* executor) const
     return executor->execBegin(this);
 }
 
+AutoTypeAction::Result AutoTypeBegin::exec(TargetedAutoTypeExecutor* executor,
+                                           QSharedPointer<AutoTypeTarget> target) const
+{
+    Q_UNUSED(target);
+    return executor->execBegin(this, target);
+}
+
+AutoTypeAction::Result AutoTypeDelay::exec(TargetedAutoTypeExecutor* executor,
+                                           QSharedPointer<AutoTypeTarget> target) const
+{
+    Q_UNUSED(target);
+    if (setExecDelay) {
+        // Change the delay between actions
+        executor->execDelayMs = delayMs;
+    } else {
+        // Pause execution
+        Tools::wait(delayMs);
+    }
+
+    return AutoTypeAction::Result::Ok();
+}
+
 AutoTypeMode::AutoTypeMode(AutoTypeExecutor::Mode mode)
     : mode(mode)
 {
@@ -75,4 +103,18 @@ AutoTypeAction::Result AutoTypeMode::exec(AutoTypeExecutor* executor) const
 {
     executor->mode = mode;
     return AutoTypeAction::Result::Ok();
+}
+
+AutoTypeAction::Result AutoTypeMode::exec(TargetedAutoTypeExecutor* executor,
+                                          QSharedPointer<AutoTypeTarget> target) const
+{
+    Q_UNUSED(target)
+    executor->mode = mode;
+    return AutoTypeAction::Result::Ok();
+}
+
+AutoTypeAction::Result AutoTypeClearField::exec(TargetedAutoTypeExecutor* executor,
+                                                QSharedPointer<AutoTypeTarget> target) const
+{
+    return executor->execClearField(this, target);
 }

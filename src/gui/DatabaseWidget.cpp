@@ -35,6 +35,7 @@
 #include "core/Merger.h"
 #include "gui/Clipboard.h"
 #include "gui/CloneDialog.h"
+#include "gui/AutoTypeTargetSelectDialog.h"
 #include "gui/EntryPreviewWidget.h"
 #include "gui/FileDialog.h"
 #include "gui/GuiTools.h"
@@ -812,6 +813,17 @@ void DatabaseWidget::performAutoTypePasswordEnter()
 void DatabaseWidget::performAutoTypeTOTP()
 {
     performAutoType(QStringLiteral("{TOTP}"));
+}
+
+void DatabaseWidget::performAutoTypePluginLibvirt()
+{
+    auto currentEntry = currentSelectedEntry();
+    Q_ASSERT(currentEntry);
+    if (!currentEntry) {
+        return;
+    }
+
+    performAutoTypeWithPlugin("libvirt", currentEntry);
 }
 
 void DatabaseWidget::openUrl()
@@ -2056,6 +2068,26 @@ bool DatabaseWidget::performSave(QString& errorMessage, const QString& fileName)
     }
 
     return ok;
+}
+
+void DatabaseWidget::performAutoTypeWithPlugin(const QString& pluginName, Entry* entry)
+{
+    if (!autoType()->isExternalPluginTargetSelectionRequired(pluginName)) {
+        autoType()->performAutoTypeOnExternalPlugin(entry, pluginName, QSharedPointer<AutoTypeTarget>());
+        return;
+    }
+
+    const AutoTypeTargetMap& targets = autoType()->getExternalPluginTargets(pluginName);
+
+    if (targets.values().isEmpty()) {
+        MessageBox::critical(this,
+                             "No targets available",
+                             QString("Plugin %1 did not return any available targets for auto-typing").arg(pluginName));
+        return;
+    }
+
+    auto targetSelectDialog = new AutoTypeTargetSelectDialog(pluginName, targets, this, entry);
+    targetSelectDialog->show();
 }
 
 /**

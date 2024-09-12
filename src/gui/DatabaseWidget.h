@@ -190,6 +190,7 @@ public slots:
     void performAutoTypePassword();
     void performAutoTypePasswordEnter();
     void performAutoTypeTOTP();
+    void performAutoTypePluginLibvirt();
     void openUrl();
     void downloadSelectedFavicons();
     void downloadAllFavicons();
@@ -262,6 +263,7 @@ private:
     void openDatabaseFromEntry(const Entry* entry, bool inBackground = true);
     void performIconDownloads(const QList<Entry*>& entries, bool force = false, bool downloadInBackground = false);
     bool performSave(QString& errorMessage, const QString& fileName = {});
+    void performAutoTypeWithPlugin(const QString& pluginName, Entry* entry);
 
     QSharedPointer<Database> m_db;
 

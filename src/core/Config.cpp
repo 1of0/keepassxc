@@ -79,6 +79,8 @@ static const QHash<Config::ConfigKey, ConfigDirective> configStrings = {
     {Config::GlobalAutoTypeKey,{QS("GlobalAutoTypeKey"), Roaming, 0}},
     {Config::GlobalAutoTypeModifiers,{QS("GlobalAutoTypeModifiers"), Roaming, 0}},
     {Config::GlobalAutoTypeRetypeTime,{QS("GlobalAutoTypeRetypeTime"), Roaming, 15}},
+    {Config::AutoTypeLibvirtDeadKeysWindows,{QS("AutoTypeLibvirtDeadKeysWindows"), Roaming, true}},
+    {Config::AutoTypeLibvirtDeadKeysOther,{QS("AutoTypeLibvirtDeadKeysWindows"), Roaming, false}},
     {Config::FaviconDownloadTimeout,{QS("FaviconDownloadTimeout"), Roaming, 10}},
     {Config::UpdateCheckMessageShown,{QS("UpdateCheckMessageShown"), Roaming, false}},
 
@@ -88,6 +90,7 @@ static const QHash<Config::ConfigKey, ConfigDirective> configStrings = {
     {Config::LastActiveDatabase, {QS("LastActiveDatabase"), Local, {}}},
     {Config::LastOpenedDatabases, {QS("LastOpenedDatabases"), Local, {}}},
     {Config::LastDir, {QS("LastDir"), Local, QDir::homePath()}},
+    {Config::AutoTypeLibvirtConnectionStrings,{QS("AutoTypeLibvirtConnectionStrings"), Local, QS("")}},
 
     // GUI
     {Config::GUI_Language, {QS("GUI/Language"), Roaming, QS("system")}},

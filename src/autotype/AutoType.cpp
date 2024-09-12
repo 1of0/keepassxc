@@ -26,6 +26,7 @@
 #include "config-keepassx.h"
 
 #include "autotype/AutoTypePlatformPlugin.h"
+#include "autotype/AutoTypeExternalPlugin.h"
 #include "autotype/AutoTypeSelectDialog.h"
 #include "autotype/PickcharsDialog.h"
 #include "core/Resources.h"
@@ -145,11 +146,27 @@ AutoType::AutoType(QObject* parent, bool test)
 
     QString pluginPath = resources()->pluginPath(pluginName);
 
-    if (!pluginPath.isEmpty()) {
 #ifdef WITH_XC_AUTOTYPE
+    if (!pluginPath.isEmpty()) {
         loadPlugin(pluginPath);
-#endif
     }
+
+    if (test) {
+        QString externalPluginTestPath = resources()->pluginPath("keepassxc-autotype-ext-test");
+        if (!externalPluginTestPath.isEmpty()) {
+            loadExternalPlugin("ext-test", externalPluginTestPath);
+        }
+    }
+#ifdef WITH_XC_AUTOTYPE_EXT_LIBVIRT
+
+    QString externalPluginLibvirtPath = resources()->pluginPath("keepassxc-autotype-ext-libvirt");
+    if (!externalPluginLibvirtPath.isEmpty()) {
+        loadExternalPlugin("libvirt", externalPluginLibvirtPath);
+    }
+#endif
+#else
+    Q_UNUSED(pluginPath);
+#endif
 
     connect(qApp, SIGNAL(aboutToQuit()), SLOT(unloadPlugin()));
 }
@@ -159,6 +176,12 @@ AutoType::~AutoType()
     if (m_executor) {
         delete m_executor;
         m_executor = nullptr;
+    }
+
+    for (const auto& plugin_name : m_external_executors.keys()) {
+        auto executor = m_external_executors[plugin_name];
+        m_external_executors.remove(plugin_name);
+        delete executor;
     }
 }
 
@@ -193,6 +216,32 @@ void AutoType::loadPlugin(const QString& pluginPath)
     }
 }
 
+void AutoType::loadExternalPlugin(const QString& name, const QString& pluginPath)
+{
+    m_pluginLoader->setFileName(pluginPath);
+
+    QObject* pluginInstance = m_pluginLoader->instance();
+    if (pluginInstance) {
+        auto externalPlugin = qobject_cast<AutoTypeExternalInterface*>(pluginInstance);
+
+        if (externalPlugin) {
+            m_external_plugins[name] = externalPlugin;
+
+            if (externalPlugin->isAvailable()) {
+                m_external_executors[name] = externalPlugin->createExecutor();
+            } else {
+                unloadExternalPlugin(name);
+            }
+        }
+    }
+
+    if (!m_external_plugins.contains(name)) {
+        qWarning("Unable to load external auto-type plugin %s:\n%s",
+                 qPrintable(name),
+                 qPrintable(m_pluginLoader->errorString()));
+    }
+}
+
 void AutoType::unloadPlugin()
 {
     if (m_executor) {
@@ -203,6 +252,21 @@ void AutoType::unloadPlugin()
     if (m_plugin) {
         m_plugin->unload();
         m_plugin = nullptr;
+    }
+}
+
+void AutoType::unloadExternalPlugin(const QString& name)
+{
+    if (m_external_executors.contains(name)) {
+        auto executor = m_external_executors[name];
+        m_external_executors.remove(name);
+        delete executor;
+    }
+
+    if (m_external_plugins.contains(name)) {
+        auto plugin = m_external_plugins[name];
+        m_external_plugins.remove(name);
+        plugin->unload();
     }
 }
 
@@ -352,6 +416,51 @@ void AutoType::executeAutoTypeActions(const Entry* entry,
     m_inAutoType.unlock();
 }
 
+void AutoType::executeAutoTypeActionsOnExternalTarget(const Entry* entry,
+                                                      const QString& pluginName,
+                                                      QSharedPointer<AutoTypeTarget> target,
+                                                      const QString& sequence)
+{
+    if (!m_external_executors.contains(pluginName)) {
+        qWarning("Trying to auto-type on plugin that is not loaded");
+        emit autotypeRejected();
+        m_inAutoType.unlock();
+        return;
+    }
+
+    QString error;
+    auto actions = parseSequence(sequence, entry, error);
+
+    if (!error.isEmpty()) {
+        auto errorMsg = tr("The requested Auto-Type sequence cannot be used due to an error:");
+        errorMsg.append(QString("\n%1\n%2").arg(sequence, error));
+        if (getMainWindow()) {
+            MessageBox::critical(getMainWindow(), tr("Auto-Type Error"), errorMsg);
+        }
+        qWarning() << errorMsg;
+        emit autotypeRejected();
+        return;
+    }
+
+    if (!m_inAutoType.tryLock()) {
+        return;
+    }
+
+    Tools::wait(qMax(100, config()->get(Config::AutoTypeStartDelay).toInt()));
+
+    auto pluginExecutor = m_external_executors[pluginName];
+
+    for (const auto& action : asConst(actions)) {
+        action->exec(pluginExecutor, target);
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+    }
+
+    // emit signal only if autotype performed correctly
+    emit autotypePerformed();
+
+    m_inAutoType.unlock();
+}
+
 /**
  * Single Autotype entry-point function
  * Look up the Auto-Type sequence for the given entry then perfom Auto-Type in the active window
@@ -379,6 +488,39 @@ void AutoType::performAutoTypeWithSequence(const Entry* entry, const QString& se
     }
 
     executeAutoTypeActions(entry, sequence);
+}
+
+void AutoType::performAutoTypeOnExternalPlugin(const Entry* entry,
+                                               const QString& pluginName,
+                                               QSharedPointer<AutoTypeTarget> target)
+{
+    if (!m_external_plugins.contains(pluginName)) {
+        qWarning("Attempted to auto-type for plugin that is not loaded: %s", qPrintable(pluginName));
+        return;
+    }
+
+    auto sequences = entry->autoTypeSequences();
+    if (!sequences.isEmpty()) {
+        executeAutoTypeActionsOnExternalTarget(entry, pluginName, target, sequences.first());
+    }
+}
+
+bool AutoType::isExternalPluginTargetSelectionRequired(const QString& pluginName)
+{
+    if (!m_external_plugins.contains(pluginName)) {
+        qWarning("Attempted to fetch targets for plugin that is not loaded: %s", qPrintable(pluginName));
+        return false;
+    }
+    return m_external_plugins[pluginName]->isTargetSelectionRequired();
+}
+
+AutoTypeTargetMap AutoType::getExternalPluginTargets(const QString& pluginName)
+{
+    if (!m_external_plugins.contains(pluginName)) {
+        qWarning("Attempted to fetch targets for plugin that is not loaded: %s", qPrintable(pluginName));
+        return AutoTypeTargetMap();
+    }
+    return m_external_plugins[pluginName]->availableTargets();
 }
 
 void AutoType::startGlobalAutoType(const QString& search)

@@ -61,6 +61,9 @@ public:
         GlobalAutoTypeKey,
         GlobalAutoTypeModifiers,
         GlobalAutoTypeRetypeTime,
+        AutoTypeLibvirtDeadKeysWindows,
+        AutoTypeLibvirtDeadKeysOther,
+        AutoTypeLibvirtConnectionStrings,
         FaviconDownloadTimeout,
         UpdateCheckMessageShown,
 

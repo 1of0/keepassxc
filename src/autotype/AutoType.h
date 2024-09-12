@@ -25,10 +25,15 @@
 #include <QTimer>
 #include <QWidget>
 
+#include "autotype/AutoTypeExternalPlugin.h"
 #include "AutoTypeAction.h"
 #include "AutoTypeMatch.h"
 
+class AutoTypeAction;
+class AutoTypeExecutor;
+class TargetedAutoTypeExecutor;
 class AutoTypePlatformInterface;
+class AutoTypeExternalInterface;
 class Database;
 class Entry;
 class QPluginLoader;
@@ -43,12 +48,28 @@ public:
     void unregisterGlobalShortcut();
     void performAutoType(const Entry* entry);
     void performAutoTypeWithSequence(const Entry* entry, const QString& sequence);
+    void performAutoTypeOnExternalPlugin(const Entry* entry,
+                                         const QString& pluginName,
+                                         QSharedPointer<AutoTypeTarget> target);
+
+    bool isExternalPluginTargetSelectionRequired(const QString& pluginName);
+    AutoTypeTargetMap getExternalPluginTargets(const QString& pluginName);
 
     static bool verifyAutoTypeSyntax(const QString& sequence, const Entry* entry, QString& error);
 
     inline bool isAvailable()
     {
         return m_plugin;
+    }
+
+    inline bool isAnyExternalPluginAvailable()
+    {
+        return !m_external_plugins.isEmpty();
+    }
+
+    inline bool isExternalPluginAvailable(const QString& name)
+    {
+        return m_external_plugins.contains(name);
     }
 
     static AutoType* instance();
@@ -67,6 +88,7 @@ signals:
 private slots:
     void startGlobalAutoType(const QString& search);
     void unloadPlugin();
+    void unloadExternalPlugin(const QString& name);
 
 private:
     enum WindowState
@@ -79,10 +101,15 @@ private:
     explicit AutoType(QObject* parent = nullptr, bool test = false);
     ~AutoType() override;
     void loadPlugin(const QString& pluginPath);
+    void loadExternalPlugin(const QString& name, const QString& pluginPath);
     void executeAutoTypeActions(const Entry* entry,
                                 const QString& sequence = QString(),
                                 WId window = 0,
                                 AutoTypeExecutor::Mode mode = AutoTypeExecutor::Mode::NORMAL);
+    void executeAutoTypeActionsOnExternalTarget(const Entry* entry,
+                                                const QString& pluginName,
+                                                QSharedPointer<AutoTypeTarget> target,
+                                                const QString& customSequence = QString());
     void restoreWindowState();
     void resetAutoTypeState();
 
@@ -94,6 +121,8 @@ private:
     QPluginLoader* m_pluginLoader;
     AutoTypePlatformInterface* m_plugin;
     AutoTypeExecutor* m_executor;
+    QHash<QString, AutoTypeExternalInterface*> m_external_plugins;
+    QHash<QString, TargetedAutoTypeExecutor*> m_external_executors;
     static AutoType* m_instance;
 
     QString m_windowTitleForGlobal;
